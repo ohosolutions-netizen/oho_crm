@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fullPermissions, hasPermission, visibleOwner, isDescendant, validHierarchy, followUpDate, indiaToday } from '../lib/model.ts';
+import { fullPermissions, hasPermission, visibleOwner, isDescendant, validHierarchy, followUpDate, indiaToday, normalizeData, canConvertLead } from '../lib/model.ts';
 const roles=[{id:'admin',name:'Admin',parentId:null},{id:'manager',name:'Manager',parentId:'admin'},{id:'executive',name:'Executive',parentId:'manager'},{id:'other',name:'Other branch',parentId:'admin'}];
 const member=(id,roleId)=>({id,roleId,name:id,email:`${id}@example.test`,authId:null,profileId:'standard',active:1});
 test('visibility covers own records and all descendants, but excludes peers and unrelated branches',()=>{
@@ -34,4 +34,19 @@ test('completed and paid records leave the follow-up queue; next action override
 });
 test('follow-up dates use India time across the UTC date boundary',()=>{
   assert.equal(indiaToday(new Date('2026-10-12T20:00:00Z')),'2026-10-13');
+});
+test('legacy data remains usable in the split lead and opportunity pipelines',()=>{
+  assert.equal(normalizeData('enquiries',{status:'New'}).status,'New Lead');
+  assert.equal(normalizeData('enquiries',{status:'Qualified'}).status,'Discovery completed');
+  assert.equal(normalizeData('opportunities',{stage:'Proposal'}).stage,'Proposal sent');
+  assert.equal(normalizeData('opportunities',{stage:'Discovery'}).stage,'Solution planning');
+});
+test('conversion starts after contact and converted leads leave the follow-up queue',()=>{
+  assert.equal(canConvertLead({status:'New Lead'}),false);
+  assert.equal(canConvertLead({status:'Not connected'}),false);
+  assert.equal(canConvertLead({status:'Connected'}),true);
+  assert.equal(canConvertLead({status:'Discovery completed'}),true);
+  assert.equal(canConvertLead({status:'Converted',convertedOpportunityId:'x'}),false);
+  assert.equal(followUpDate({module:'enquiries',data:{status:'Discovery scheduled',discoveryDate:'2026-10-20'}}),'2026-10-20');
+  assert.equal(followUpDate({module:'enquiries',data:{status:'Converted',nextFollowUp:'2026-10-20'}}),'');
 });

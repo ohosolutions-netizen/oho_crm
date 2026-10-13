@@ -8,18 +8,29 @@ A standalone CRM for OHO Solutions, covering company and employee contacts, enqu
 - Profiles control View, Create, Edit, and Delete separately for each module.
 - All API reads and writes enforce both controls. Dashboard, search, export, and related-record views operate on server-filtered data.
 - Each user must have a role and a profile. Deactivation retains ownership and history but prevents access.
-- The initial private Site's first signed-in owner becomes the administrator. ChatGPT sign-in provides identity; internal membership is checked separately on every request.
-- Add team members using the email associated with their ChatGPT sign-in. A Site's hosting audience must also permit the team to visit; adding an internal member does not change hosting access.
+- The user explicitly requested no authentication for this phase. Enter a work email to select a CRM user; no password, ChatGPT sign-in, or email verification is required.
+- The first email in an empty CRM becomes its administrator. Later emails must be added as active users in Administration. Existing users and records are retained.
+- The email selection is stored in an HttpOnly cookie. It is a user selector, not proof of identity: someone who knows another user's email can select that user. Role/profile rules are applied to that selected identity.
 
 ## Initial defaults
 
 Roles: Admin → Manager → Executive. Profiles: Administrator (full permissions) and Standard (View/Create/Edit for customer modules; no Delete or Administration).
 
-There are no production sample records or placeholder employees. Add the remaining six users in Administration when their names and sign-in emails are available.
+There are no production sample records or placeholder employees. Add the remaining six users in Administration using their names and work emails.
+
+## Lead and opportunity workflows
+
+Lead stages: New Lead → Contacted → Connected / Not connected → Discovery scheduled → Discovery completed → Converted. Disqualified is available as an exit. Not connected leads can be retried, and discovery stores date, time, online/offline mode, and meeting location/link.
+
+An explicit Convert to opportunity action is available after connection. It creates or reuses the company and employee contact, carries requirements/products/owner/follow-up forward, creates an opportunity at Solution planning, and marks the original lead Converted in one database transaction. A unique conversion claim prevents duplicate conversion, including concurrent requests. Converted leads are retained as history. Outreach activities stay linked through their lead.
+
+Opportunity stages: Solution planning → Proposal preparation → Proposal sent → Negotiation → Accepted / Closed lost. Meetings and proposal versions attach to opportunities.
+
+Older lead and opportunity status names are normalized when read, so existing data remains usable without rewriting historical migrations.
 
 ## Local development on Windows
 
-Requires Node 22.13+ and installed dependencies. The development identity is `seedy@sites.test`; it is loopback-only and excluded from production.
+Requires Node 22.13+ and installed dependencies. The local test fixture uses `seedy@sites.test`; it is never seeded into production.
 
 ```powershell
 node scripts/run-framework.mjs dev --hostname 127.0.0.1
@@ -52,4 +63,4 @@ The API regression script requires the loopback development server and its migra
 - Follow-up reminders are in-app due/overdue views; no email/SMS or background notifications are configured.
 - Proposal and acceptance documents are external links, not file uploads or legally binding signatures.
 - Process definitions and automated invoicing remain deferred.
-- Hosting is owner-private for initial review. Team access requires configuring the supported hosting audience as well as adding CRM users.
+- Hosting allows opening the page without ChatGPT sign-in, as requested. An email entry is still required to select an active CRM user. Verified authentication is deferred.

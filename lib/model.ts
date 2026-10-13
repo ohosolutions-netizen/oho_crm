@@ -4,7 +4,15 @@ export type PermissionMap = Record<string, Record<Action, boolean>>;
 export type Member = { id: string; name: string; email: string; authId: string | null; roleId: string; profileId: string; active: number };
 export type CRMRecord = { id: string; module: string; title: string; ownerId: string; companyId: string | null; data: Record<string, string>; createdAt: string; updatedAt: string };
 export type Field = { key: string; label: string; type?: string; options?: string[]; required?: boolean };
-export const stages = ['New enquiry', 'Qualification', 'Discovery', 'Solution planning', 'Proposal', 'Negotiation', 'Accepted', 'Closed lost'];
+export const leadStages = ['New Lead', 'Contacted', 'Not connected', 'Connected', 'Discovery scheduled', 'Discovery completed', 'Converted', 'Disqualified'];
+export const stages = ['Solution planning', 'Proposal preparation', 'Proposal sent', 'Negotiation', 'Accepted', 'Closed lost'];
+export function normalizeData(module:string,data:Record<string,string>) {
+  const copy={...data};
+  if(module==='enquiries') {const map:Record<string,string>={New:'New Lead',Reviewing:'Contacted',Qualified:'Discovery completed','Not qualified':'Disqualified'};copy.status=map[copy.status]||copy.status||'New Lead';}
+  if(module==='opportunities') {const map:Record<string,string>={'New enquiry':'Solution planning',Qualification:'Solution planning',Discovery:'Solution planning',Proposal:'Proposal sent'};copy.stage=map[copy.stage]||copy.stage||'Solution planning';}
+  return copy;
+}
+export function canConvertLead(data:Record<string,string>) { return ['Connected','Discovery scheduled','Discovery completed'].includes(data.status)&&!data.convertedOpportunityId; }
 export const modules: Record<string, { name: string; singular: string; description: string; fields: Field[] }> = {
   companies: { name: 'Companies', singular: 'company', description: 'Your customer relationships, in one place.', fields: [
     { key:'industry',label:'Industry' },{ key:'website',label:'Website',type:'url' },{ key:'email',label:'Company email',type:'email' },
@@ -13,18 +21,22 @@ export const modules: Record<string, { name: string; singular: string; descripti
   contacts: { name:'Contacts',singular:'contact',description:'The people behind every company.',fields:[
     { key:'designation',label:'Designation' },{ key:'email',label:'Email',type:'email' },{ key:'phone',label:'Phone' },
     { key:'decisionMaker',label:'Decision maker',options:['No','Yes'] },{key:'notes',label:'Notes',type:'textarea'} ] },
-  enquiries: { name:'Enquiries',singular:'enquiry',description:'Capture requirements. Find the next opportunity.',fields:[
+  enquiries: { name:'Leads',singular:'lead',description:'Make contact, schedule discovery, and convert qualified leads.',fields:[
+    {key:'companyName',label:'Company name (if not linked)'},{key:'contactName',label:'Contact person'},
+    {key:'email',label:'Lead email',type:'email'},{key:'phone',label:'Lead phone'},
     { key:'contactId',label:'Contact',type:'contact' },{ key:'source',label:'Source',options:['Referral','Website','Email','WhatsApp','Phone','Event','Partner','Other'] },
-    { key:'receivedDate',label:'Received date',type:'date',required:true },{ key:'status',label:'Qualification',options:['New','Reviewing','Qualified','Not qualified'] },
+    { key:'receivedDate',label:'Received date',type:'date',required:true },{ key:'status',label:'Lead stage',options:leadStages,required:true },
     { key:'requirements',label:'Customer requirements',type:'textarea',required:true },{ key:'products',label:'Zoho products / solution' },
-    { key:'nextFollowUp',label:'Next follow-up',type:'date' },{key:'notes',label:'Notes',type:'textarea'} ] },
-  opportunities: { name:'Opportunities',singular:'opportunity',description:'Move every solution from discovery to acceptance.',fields:[
-    { key:'enquiryId',label:'Enquiry',type:'enquiry' },{ key:'contactId',label:'Contact',type:'contact' },{ key:'stage',label:'Sales stage',options:stages },
+    {key:'discoveryDate',label:'Discovery meeting date',type:'date'},{key:'discoveryTime',label:'Discovery time (India)',type:'time'},
+    {key:'discoveryMode',label:'Discovery meeting mode',options:['Online','Offline']},{key:'discoveryLocation',label:'Meeting link / location'},
+    { key:'nextFollowUp',label:'Next follow-up',type:'date' },{key:'notes',label:'Outreach / discovery notes',type:'textarea'} ] },
+  opportunities: { name:'Opportunities',singular:'opportunity',description:'Plan the solution, send proposals, negotiate, and close.',fields:[
+    { key:'enquiryId',label:'Original lead',type:'enquiry' },{ key:'contactId',label:'Contact',type:'contact' },{ key:'stage',label:'Opportunity stage',options:stages,required:true },
     { key:'products',label:'Zoho products / solution' },{ key:'amount',label:'Estimated value (INR)',type:'number' },
     { key:'expectedClose',label:'Expected close',type:'date' },{ key:'nextFollowUp',label:'Next follow-up',type:'date' },
     { key:'scope',label:'Solution scope',type:'textarea' },{ key:'notes',label:'Negotiation / closure notes',type:'textarea'} ] },
   activities: { name:'Activities',singular:'activity',description:'Every conversation. Every next step.',fields:[
-    { key:'contactId',label:'Contact',type:'contact' },{ key:'opportunityId',label:'Opportunity',type:'opportunity' },
+    { key:'contactId',label:'Contact',type:'contact' },{key:'enquiryId',label:'Lead',type:'enquiry'},{ key:'opportunityId',label:'Opportunity',type:'opportunity' },
     { key:'type',label:'Activity type',options:['Call','Online meeting','Offline meeting','Email','Follow-up','Task'] },
     { key:'dueDate',label:'Due date',type:'date',required:true },{ key:'time',label:'Time (India)',type:'time' },
     { key:'status',label:'Status',options:['Scheduled','Completed','Cancelled'] },
@@ -84,6 +96,6 @@ export function indiaToday(now = new Date()) {
   return new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Kolkata',year:'numeric',month:'2-digit',day:'2-digit'}).format(now);
 }
 export function followUpDate(r: CRMRecord) {
-  if(r.data.status==='Completed'||r.data.status==='Cancelled'||r.data.status==='Paid'||r.data.status==='Rejected'||r.data.status==='Not qualified'||r.data.stage==='Closed lost'||r.data.stage==='Accepted') return '';
-  return r.data.nextFollowUp || (['activities','invoices','projects'].includes(r.module)?r.data.dueDate:'') || '';
+  if(['Completed','Cancelled','Paid','Rejected','Not qualified','Disqualified','Converted'].includes(r.data.status)||r.data.stage==='Closed lost'||r.data.stage==='Accepted') return '';
+  return r.data.nextFollowUp || (r.module==='enquiries'&&r.data.status==='Discovery scheduled'?r.data.discoveryDate:'') || (['activities','invoices','projects'].includes(r.module)?r.data.dueDate:'') || '';
 }

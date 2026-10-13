@@ -1,5 +1,6 @@
 import { context, allRecords, canSee, permit, database, log, APIError, errorResponse, checkOrigin } from '../../../lib/server';
 import { modules, fullPermissions, hasPermission, visibleOwner, validHierarchy, type Role, type PermissionMap, type Member } from '../../../lib/model';
+import { convertLead } from '../../../lib/workflow';
 export const dynamic='force-dynamic';
 export async function GET() {
   try {
@@ -22,6 +23,7 @@ export async function POST(req:Request) {
     checkOrigin(req); const c=await context(); const b=await req.json() as Record<string,unknown>;
     const kind=string(b.kind,'operation',true); const operation=string(b.operation,'action',true);
     if(!['create','edit','delete'].includes(operation)) throw new APIError('Unknown action.');
+    if(kind==='convert') {if(operation!=='create')throw new APIError('Unknown conversion action.');return await convertLead(c,b);}
     const id=operation==='create'?crypto.randomUUID():string(b.id,'record ID',true);
     const queries: D1PreparedStatement[]=[];
     if(kind==='record') {
@@ -29,6 +31,7 @@ export async function POST(req:Request) {
       permit(c,module,operation as 'create'|'edit'|'delete');
       const existing=await allRecords(); const old=existing.find(r=>r.id===id);
       if(operation!=='create'&&(!old||old.module!==module||!canSee(c,old))) throw new APIError('Record unavailable.',404);
+      if(module==='enquiries'&&old?.data.status==='Converted')throw new APIError('Converted leads are retained as history. Edit the linked opportunity.');
       if(operation==='delete') {
         if(module==='proposals'&&old?.data.status==='Accepted') throw new APIError('Accepted proposals are retained. Create a new version instead.');
         if(existing.some(r=>r.companyId===id||Object.values(r.data).some(v=>v===id))) throw new APIError('This record has linked records. Remove or relink them before deleting.');
@@ -57,6 +60,11 @@ export async function POST(req:Request) {
             if(module==='invoices'&&f.key==='proposalId'&&linked.data.status!=='Accepted') throw new APIError('Invoices must link to an accepted proposal.');
             if(module==='projects'&&f.key==='opportunityId'&&linked.data.stage!=='Accepted') throw new APIError('Implementation must link to an accepted opportunity.');
           }
+        }
+        if(module==='enquiries') {
+          if(data.status==='Converted')throw new APIError('Use Convert to opportunity to convert this lead.');
+          if(data.status==='Discovery scheduled'&&!data.discoveryDate)throw new APIError('Set the discovery meeting date before scheduling discovery.');
+          if(data.discoveryTime&&!/^([01]\d|2[0-3]):[0-5]\d$/.test(data.discoveryTime))throw new APIError('Enter a valid discovery time.');
         }
         if(module==='companies'&&existing.some(r=>r.module===module&&r.id!==id&&r.title.toLowerCase()===title.toLowerCase())) throw new APIError('A company with this name already exists.');
         if(module==='proposals') {
@@ -102,8 +110,7 @@ export async function POST(req:Request) {
         const old=c.members.find(u=>u.id===id); if(operation!=='create'&&!old) throw new APIError('User unavailable.',404);
         if(operation==='delete') throw new APIError('Deactivate users to retain record ownership and audit history.');
         const name=string(b.name,'user name',true),email=string(b.email,'email',true).toLowerCase();
-        if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new APIError('Enter a valid sign-in email.');
-        if(old?.authId&&email!==old.email) throw new APIError('A linked sign-in email cannot be changed. Deactivate this user and add the new account.');
+        if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new APIError('Enter a valid user email.');
         if(c.members.some(u=>u.id!==id&&u.email===email)) throw new APIError('This email already has a user.');
         const roleId=string(b.roleId,'role',true),profileId=string(b.profileId,'profile',true),active=b.active===false?0:1;
         if(!c.roles.some(r=>r.id===roleId)||!c.profiles.some(p=>p.id===profileId)) throw new APIError('Assign a valid role and profile.');

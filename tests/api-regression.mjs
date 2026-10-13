@@ -12,9 +12,9 @@ if(!dbFile)throw new Error('Migrate the local preview database first.');
 const db=new DatabaseSync(join(folder,dbFile));
 db.exec('PRAGMA busy_timeout=5000');
 const prefix='regression-'+crypto.randomUUID();const created=[];const fixtures=[];let me;
-const login=await fetch(origin+'/signin-with-chatgpt?return_to=/',{redirect:'manual'});
+const login=await fetch(origin+'/api/identity',{method:'POST',headers:{'Content-Type':'application/json',Origin:origin},body:JSON.stringify({email:'seedy@sites.test'})});
 const cookie=login.headers.get('set-cookie')?.split(';')[0];
-assert.ok(cookie,'Local sign-in cookie');
+assert.ok(cookie,'Email selection cookie');
 async function request(payload,expected=200,headers={}) {
   const r=await fetch(origin+'/api/crm',{method:payload?'POST':'GET',headers:{cookie,...(payload?{'Content-Type':'application/json',Origin:origin}:{}),...headers},body:payload?JSON.stringify(payload):undefined});
   const text=await r.text();let body;try{body=JSON.parse(text);}catch{body={error:text};}assert.equal(r.status,expected,JSON.stringify(body));return body;
@@ -29,12 +29,35 @@ function pass(name){console.log('PASS '+name);passed++;}
 try {
   assert.equal((await fetch(origin+'/api/crm')).status,401);pass('Anonymous API calls are rejected');
   const initial=await request();me=initial.me;
-  assert.equal(me.authId,'local_seedy','Only local test identity may be modified');
+  assert.equal(me.email,'seedy@sites.test','Only local test identity may be modified');
+  const invalidEmail=await fetch(origin+'/api/identity',{method:'POST',headers:{'Content-Type':'application/json',Origin:origin},body:JSON.stringify({email:'invalid'})});assert.equal(invalidEmail.status,400);
+  const unknownEmail=await fetch(origin+'/api/identity',{method:'POST',headers:{'Content-Type':'application/json',Origin:origin},body:JSON.stringify({email:prefix+'-unknown@example.test'})});assert.equal(unknownEmail.status,403);
+  const caseEmail=await fetch(origin+'/api/identity',{method:'POST',headers:{'Content-Type':'application/json',Origin:origin},body:JSON.stringify({email:' SEEDY@SITES.TEST '})});assert.equal(caseEmail.status,200);pass('Email-only entry validates and normalizes the selected team email');
   const co=await create('companies','Meridian',{industry:'Manufacturing',status:'Prospect'});
   const c1=await create('contacts','Anika',{email:'anika@example.test'},co);
   const c2=await create('contacts','Rohan',{email:'rohan@example.test'},co);
   assert.equal((await request()).records.filter(r=>r.companyId===co&&r.module==='contacts').length,2);pass('One company has multiple employee contacts');
-  const enquiry=await create('enquiries','Zoho CRM enquiry',{requirements:'CRM and process implementation',receivedDate:'2026-10-13',source:'Referral',status:'Qualified',contactId:c1,nextFollowUp:'2026-10-12'},co);
+  const leadData={status:'New Lead',companyName:prefix+' Raw Company',contactName:'Nisha',email:'nisha@example.test',phone:'9000000000',source:'Email',receivedDate:'2026-10-13',requirements:'CRM discovery and proposal',products:'Zoho CRM',notes:'Customer wants a sales process',nextFollowUp:'2026-10-20'};
+  const rawLead=await create('enquiries','Raw lead',leadData);
+  for(const status of ['Contacted','Not connected','Connected'])await request({kind:'record',operation:'edit',id:rawLead,module:'enquiries',title:prefix+' Raw lead',data:{...leadData,status}});
+  await request({kind:'record',operation:'edit',id:rawLead,module:'enquiries',title:prefix+' Raw lead',data:{...leadData,status:'Discovery scheduled'}},400);
+  await request({kind:'record',operation:'edit',id:rawLead,module:'enquiries',title:prefix+' Raw lead',data:{...leadData,status:'Discovery scheduled',discoveryDate:'2026-10-19',discoveryTime:'10:30',discoveryMode:'Online'}});
+  const outreach=await create('activities','Raw lead outreach',{enquiryId:rawLead,type:'Call',dueDate:'2026-10-13',status:'Completed',outcome:'Connected'});
+  await request({kind:'record',operation:'edit',id:rawLead,module:'enquiries',title:prefix+' Raw lead',data:{...leadData,status:'Discovery completed',discoveryDate:'2026-10-19'}});
+  const converted=await request({kind:'convert',operation:'create',leadId:rawLead,title:prefix+' Converted opportunity',amount:'80000'});
+  created.push(converted.id,converted.companyId,converted.contactId);
+  const conversionRecords=(await request()).records;const original=conversionRecords.find(r=>r.id===rawLead),convertedOpp=conversionRecords.find(r=>r.id===converted.id);
+  assert.equal(original.data.status,'Converted');assert.equal(original.data.convertedOpportunityId,converted.id);assert.equal(convertedOpp.data.stage,'Solution planning');assert.equal(convertedOpp.data.scope,leadData.requirements);assert.equal(convertedOpp.ownerId,original.ownerId);assert.equal(convertedOpp.data.enquiryId,rawLead);assert.equal(convertedOpp.data.nextFollowUp,leadData.nextFollowUp);assert.ok(conversionRecords.find(r=>r.id===outreach));
+  assert.equal(conversionRecords.find(r=>r.id===converted.contactId).companyId,converted.companyId);
+  await request({kind:'convert',operation:'create',leadId:rawLead},409);
+  await request({kind:'record',operation:'edit',id:rawLead,module:'enquiries',title:'Tamper',companyId:converted.companyId,data:{...leadData,status:'Connected'}},400);
+  pass('Lead outreach and discovery convert atomically to an opportunity, retaining company, contact and history');
+  const newLead=await create('enquiries','Not connected lead',{...leadData,status:'Not connected'},co);await request({kind:'convert',operation:'create',leadId:newLead},409);
+  const raceLead=await create('enquiries','Conversion race',{...leadData,companyName:'',contactName:'',email:'',status:'Connected'},co);
+  const race=await Promise.all([200,200].map(()=>fetch(origin+'/api/crm',{method:'POST',headers:{cookie,'Content-Type':'application/json',Origin:origin},body:JSON.stringify({kind:'convert',operation:'create',leadId:raceLead})})));
+  assert.deepEqual(race.map(r=>r.status).sort(),[200,409]);for(const r of race){const body=await r.json();if(r.status===200)created.push(body.id);}
+  assert.equal((await request()).records.filter(r=>r.module==='opportunities'&&r.data.enquiryId===raceLead).length,1);pass('Unconnected leads cannot convert and concurrent conversion creates only one opportunity');
+  const enquiry=await create('enquiries','Zoho CRM enquiry',{requirements:'CRM and process implementation',receivedDate:'2026-10-13',source:'Referral',status:'Discovery completed',contactId:c1,nextFollowUp:'2026-10-12'},co);
   const oppData={enquiryId:enquiry,contactId:c1,stage:'Negotiation',amount:'125000',products:'Zoho CRM',scope:'Sales pipeline'};
   const opp=await create('opportunities','CRM implementation',oppData,co);
   const activity=await create('activities','Discovery call',{contactId:c1,opportunityId:opp,type:'Call',dueDate:'2026-10-12',status:'Scheduled',outcome:'Disconnected'},co);
@@ -77,7 +100,7 @@ try {
   await request({kind:'record',operation:'edit',module:'enquiries',id:peerRecord,title:'Forbidden',data:{receivedDate:'2026-10-13',requirements:'test'}},404);
   await request({kind:'record',operation:'delete',module:'enquiries',id:directRecord},403);
   await request({kind:'role',operation:'create',name:'Forbidden role'},403);
-  await request({kind:'record',operation:'edit',module:'enquiries',id:directRecord,title:'Allowed edit',data:{receivedDate:'2026-10-13',requirements:'Updated by manager',status:'Qualified'}});
+  await request({kind:'record',operation:'edit',module:'enquiries',id:directRecord,title:'Allowed edit',data:{receivedDate:'2026-10-13',requirements:'Updated by manager',status:'Connected'}});
   pass('Real API permits descendant visibility and edits but denies peer/branch access, Delete and Administration');
   p.enquiries.view=false;db.prepare('UPDATE profiles SET permissions=? WHERE id=?').run(JSON.stringify(p),profile.id);
   assert.ok(!(await request()).records.some(r=>r.module==='enquiries'));
@@ -86,6 +109,7 @@ try {
 } finally {
   if(me)db.prepare('UPDATE users SET role_id=?,profile_id=?,active=? WHERE id=?').run(me.roleId,me.profileId,me.active,me.id);
   for(const id of created)db.prepare('DELETE FROM records WHERE id=?').run(id);
+  for(const id of created)db.prepare('DELETE FROM settings WHERE key=?').run('lead_conversion:'+id);
   db.prepare("DELETE FROM audit WHERE details LIKE ? OR target LIKE ?").run('%'+prefix+'%','%'+prefix+'%');
   for(const id of fixtures){db.prepare('DELETE FROM users WHERE id=?').run(id);}
   for(const id of fixtures){db.prepare('DELETE FROM profiles WHERE id=?').run(id);db.prepare('DELETE FROM roles WHERE id=?').run(id);}

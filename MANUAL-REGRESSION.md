@@ -2,19 +2,28 @@
 
 ## Verified in local preview
 
-- Sign-in loads the Overview and initializes the administrator and default roles/profiles.
+- Email-only entry loads Overview without a password or ChatGPT sign-in.
 - Add Company persists a customer company and returns to the dashboard.
 - Open Company shows the recorded industry and email.
 - Add Contact from Company preselects the company; the saved contact appears under related records.
-- Administration displays the signed-in user, role, profile, and linked sign-in status.
+- Administration displays the selected email's user, role, profile, and email-only entry method.
 - Permission Sets / Profiles is separate from Role Designer.
 - Profile editor displays independent View, Create, Edit, Delete checkboxes for every module.
 - Role Designer displays the Admin → Manager → Executive hierarchy separately from profiles.
 - Mobile settings layout and navigation verified at a 390px viewport; viewport restored afterward.
+- New Lead saved to the lead board; Contacted and Connected actions updated the stage.
+- Schedule discovery retained the meeting date, time, online mode, and outreach notes.
+- Complete discovery enabled conversion; the conversion form created a linked company/contact and opened the opportunity board.
+- The resulting opportunity retained the original lead, contact, value, requirements, owner, and follow-up date.
+- The opportunity stage selector moved the converted opportunity to Negotiation and updated its board column.
 
 ## Verified by API regression against local D1
 
 - One company supports multiple contacts.
+- Email selection validates addresses, normalizes case and whitespace, and requires an active team user after initial setup.
+- Lead outreach and discovery convert to an opportunity while retaining company, contact, requirements, owner, and history.
+- Discovery scheduled requires a meeting date. Unconnected leads cannot convert.
+- Duplicate and concurrent conversions cannot create more than one opportunity per lead.
 - Enquiries, opportunities, disconnected calls, and next-action dates persist.
 - Proposal version uniqueness and acceptance requirements are enforced.
 - Accepted proposal contents are protected and earlier versions retained.
@@ -29,10 +38,9 @@
 
 ## Production onboarding checks
 
-- First owner sign-in initializes the actual production administrator.
-- Configure permitted hosting audience before teammates attempt sign-in.
+- The first email entered in an empty production CRM initializes its administrator.
 - Add the six remaining real users, assigning each role and profile.
-- Confirm real user sign-in email matches the CRM membership email.
+- Confirm work emails match active CRM users; email-only selection does not verify identity.
 - Have one Manager and one Executive verify visibility with representative company/enquiry records.
 
 Local mock identity and disposable regression fixtures are never included in the production database.
