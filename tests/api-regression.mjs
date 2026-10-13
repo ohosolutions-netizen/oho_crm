@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { fullPermissions } from '../lib/model.ts';
+import { fullPermissions, followUpDate, followUpLabel } from '../lib/model.ts';
 if(process.env.CRM_TEST_LOCAL!=='1') throw new Error('Set CRM_TEST_LOCAL=1 to test the local preview.');
 const origin='http://127.0.0.1:5173';
 const folder=join(process.cwd(),'.wrangler','state','v3','d1','miniflare-D1DatabaseObject');
@@ -20,7 +20,15 @@ async function request(payload,expected=200,headers={}) {
   const text=await r.text();let body;try{body=JSON.parse(text);}catch{body={error:text};}assert.equal(r.status,expected,JSON.stringify(body));return body;
 }
 async function create(module,title,data={},companyId=null) {
-  const x=await request({kind:'record',operation:'create',module,title:prefix+' '+title,companyId,data});created.push(x.id);return x.id;
+  const stageKey=module==='enquiries'?'status':module==='opportunities'?'stage':null;
+  const target=stageKey?data[stageKey]:null;const initial=module==='enquiries'?'New Lead':'Solution planning';
+  const payload={...data,...(data.nextFollowUp&&!data.followUpAction?{followUpAction:'Call the customer for the next step'}:{}),...(stageKey?{[stageKey]:initial}:{})};
+  const x=await request({kind:'record',operation:'create',module,title:prefix+' '+title,companyId,data:payload});created.push(x.id);if(stageKey&&target&&target!==initial)await stage(x.id,target,data);return x.id;
+}
+async function stage(id,target,info={},expected=200){
+  const r=(await request()).records.find(r=>r.id===id);assert.ok(r,'Accessible stage record');
+  const base={...r.data,contactMethod:'Call',contactDate:'2026-10-13',contactName:'Nisha',requirements:r.data.requirements||'Customer requirements',discoveryDate:'2026-10-19',discoveryTime:'10:30',discoveryMode:'Online',discoveryLocation:'https://meeting.example/discovery',discoverySummary:'Customer requires a sales process and CRM implementation',scope:r.data.scope||'Sales pipeline',amount:r.data.amount||'125000',proposalDueDate:'2026-10-15',proposalReference:'QTN-01 v1',proposalSentDate:'2026-10-15',proposalSentTo:'Anika',negotiationDate:'2026-10-16',negotiationPoints:'Confirm scope and implementation pricing',acceptedDate:'2026-10-17',acceptedBy:'Anika',closedDate:'2026-10-17',lossReason:'Customer deferred the project',disqualificationReason:'Not a fit for the solution',contactOutcome:'No answer',stageNote:prefix+' Stage information captured',followUpNeeded:r.data.nextFollowUp||target==='Not connected'?'Yes':'No',nextFollowUp:r.data.nextFollowUp||'2026-10-20',followUpAction:r.data.followUpAction||'Call customer to agree next steps',...info};
+  return request({kind:'transition',operation:'edit',id,targetStage:target,expectedUpdatedAt:r.updatedAt,data:base},expected);
 }
 function fixtureUser(id,role,profile) {const userId=prefix+'-'+id;db.prepare('INSERT INTO users (id,email,name,role_id,profile_id,active) VALUES (?,?,?,?,?,1)').run(userId,userId+'@example.test',id,role,profile);fixtures.push(userId);return userId;}
 function fixtureRecord(id,owner,module='enquiries') {const recordId=prefix+'-'+id;db.prepare('INSERT INTO records (id,module,title,owner_id,data,created_at,updated_at) VALUES (?,?,?,?,?,?,?)').run(recordId,module,id,owner,JSON.stringify({requirements:'test',receivedDate:'2026-10-13',status:'New'}),new Date().toISOString(),new Date().toISOString());created.push(recordId);return recordId;}
@@ -39,11 +47,33 @@ try {
   assert.equal((await request()).records.filter(r=>r.companyId===co&&r.module==='contacts').length,2);pass('One company has multiple employee contacts');
   const leadData={status:'New Lead',companyName:prefix+' Raw Company',contactName:'Nisha',email:'nisha@example.test',phone:'9000000000',source:'Email',receivedDate:'2026-10-13',requirements:'CRM discovery and proposal',products:'Zoho CRM',notes:'Customer wants a sales process',nextFollowUp:'2026-10-20'};
   const rawLead=await create('enquiries','Raw lead',leadData);
-  for(const status of ['Contacted','Not connected','Connected'])await request({kind:'record',operation:'edit',id:rawLead,module:'enquiries',title:prefix+' Raw lead',data:{...leadData,status}});
+  const beforeTransition=(await request()).records.find(r=>r.id===rawLead);
+  await request({kind:'transition',operation:'edit',id:rawLead,targetStage:'Connected',expectedUpdatedAt:beforeTransition.updatedAt,data:{stageNote:'Attempting an incomplete stage change',followUpNeeded:'No'}},400);
+  assert.equal((await request()).records.find(r=>r.id===rawLead).updatedAt,beforeTransition.updatedAt);
+  await stage(rawLead,'Not connected',{followUpNeeded:'No'},400);
+  await stage(rawLead,'Discovery scheduled',{discoveryTime:'',discoveryLocation:''},400);
+  await request({kind:'record',operation:'edit',id:rawLead,module:'enquiries',title:prefix+' Raw lead',data:{...leadData,status:'Connected',contactName:'Nisha'}},400);
+  pass('Incomplete transitions and direct stage-change bypasses cannot mutate records');
+  for(const status of ['Contacted','Not connected','Connected'])await stage(rawLead,status);
+  const recordedHistory=(await request()).stageHistory.filter(e=>e.recordId===rawLead);
+  assert.equal(recordedHistory.length,3);assert.ok(recordedHistory.every(e=>e.actor&&e.data.stageNote));assert.ok(recordedHistory.some(e=>e.toStage==='Not connected'&&e.data.followUpAction));
+  pass('Stage history retains the actor, outcome and follow-up information for each transition');
+  const fuLead=await create('enquiries','Follow-up queue',{status:'New Lead',receivedDate:'2026-10-13',requirements:'Follow-up testing'});
+  const fuBefore=(await request()).records.find(r=>r.id===fuLead);
+  await request({kind:'followup',operation:'edit',id:fuLead,action:'plan',expectedUpdatedAt:fuBefore.updatedAt,data:{nextFollowUp:'2026-10-12'}},400);
+  await request({kind:'followup',operation:'edit',id:fuLead,action:'plan',expectedUpdatedAt:fuBefore.updatedAt,data:{nextFollowUp:'2026-10-12',followUpTime:'10:30',followUpAction:prefix+' Call to confirm discovery'}});
+  const fuPlanned=(await request()).records.find(r=>r.id===fuLead);assert.equal(followUpLabel(fuPlanned,'2026-10-13'),'Overdue');assert.equal(fuPlanned.data.followUpAction,prefix+' Call to confirm discovery');
+  await request({kind:'followup',operation:'edit',id:fuLead,action:'complete',expectedUpdatedAt:fuPlanned.updatedAt,data:{followUpCompletionNote:''}},400);
+  await request({kind:'followup',operation:'edit',id:fuLead,action:'complete',expectedUpdatedAt:fuPlanned.updatedAt,data:{followUpCompletionNote:prefix+' Customer confirmed the meeting'}});
+  const fuComplete=(await request()).records.find(r=>r.id===fuLead);assert.equal(followUpDate(fuComplete),'');assert.equal(followUpLabel(fuComplete,'2026-10-13'),'Completed');assert.equal(fuComplete.data.status,'New Lead');
+  await request({kind:'followup',operation:'edit',id:fuLead,action:'plan',expectedUpdatedAt:fuBefore.updatedAt,data:{nextFollowUp:'2026-10-15',followUpAction:'Stale update'}},409);
+  await request({kind:'followup',operation:'edit',id:fuLead,action:'plan',expectedUpdatedAt:fuComplete.updatedAt,data:{nextFollowUp:'2026-10-15',followUpAction:prefix+' Review discovery notes'}});
+  assert.ok((await request()).stageHistory.some(e=>e.recordId===fuLead&&e.toStage==='Completed'&&e.data.stageNote===prefix+' Customer confirmed the meeting'));
+  pass('Follow-up planning, completion, rescheduling and outcomes stay consistent and reject stale changes');
   await request({kind:'record',operation:'edit',id:rawLead,module:'enquiries',title:prefix+' Raw lead',data:{...leadData,status:'Discovery scheduled'}},400);
-  await request({kind:'record',operation:'edit',id:rawLead,module:'enquiries',title:prefix+' Raw lead',data:{...leadData,status:'Discovery scheduled',discoveryDate:'2026-10-19',discoveryTime:'10:30',discoveryMode:'Online'}});
+  await stage(rawLead,'Discovery scheduled');
   const outreach=await create('activities','Raw lead outreach',{enquiryId:rawLead,type:'Call',dueDate:'2026-10-13',status:'Completed',outcome:'Connected'});
-  await request({kind:'record',operation:'edit',id:rawLead,module:'enquiries',title:prefix+' Raw lead',data:{...leadData,status:'Discovery completed',discoveryDate:'2026-10-19'}});
+  await stage(rawLead,'Discovery completed');
   const converted=await request({kind:'convert',operation:'create',leadId:rawLead,title:prefix+' Converted opportunity',amount:'80000'});
   created.push(converted.id,converted.companyId,converted.contactId);
   const conversionRecords=(await request()).records;const original=conversionRecords.find(r=>r.id===rawLead),convertedOpp=conversionRecords.find(r=>r.id===converted.id);
@@ -53,9 +83,9 @@ try {
   await request({kind:'record',operation:'edit',id:rawLead,module:'enquiries',title:'Tamper',companyId:converted.companyId,data:{...leadData,status:'Connected'}},400);
   pass('Lead outreach and discovery convert atomically to an opportunity, retaining company, contact and history');
   const newLead=await create('enquiries','Not connected lead',{...leadData,status:'Not connected'},co);await request({kind:'convert',operation:'create',leadId:newLead},409);
-  const raceLead=await create('enquiries','Conversion race',{...leadData,companyName:'',contactName:'',email:'',status:'Connected'},co);
+  const raceLead=await create('enquiries','Conversion race',{...leadData,companyName:'',contactName:'Race contact',email:'',status:'Connected'},co);
   const race=await Promise.all([200,200].map(()=>fetch(origin+'/api/crm',{method:'POST',headers:{cookie,'Content-Type':'application/json',Origin:origin},body:JSON.stringify({kind:'convert',operation:'create',leadId:raceLead})})));
-  assert.deepEqual(race.map(r=>r.status).sort(),[200,409]);for(const r of race){const body=await r.json();if(r.status===200)created.push(body.id);}
+  assert.deepEqual(race.map(r=>r.status).sort(),[200,409]);for(const r of race){const body=await r.json();if(r.status===200){created.push(body.id);if(body.contactId)created.push(body.contactId);}}
   assert.equal((await request()).records.filter(r=>r.module==='opportunities'&&r.data.enquiryId===raceLead).length,1);pass('Unconnected leads cannot convert and concurrent conversion creates only one opportunity');
   const enquiry=await create('enquiries','Zoho CRM enquiry',{requirements:'CRM and process implementation',receivedDate:'2026-10-13',source:'Referral',status:'Discovery completed',contactId:c1,nextFollowUp:'2026-10-12'},co);
   const oppData={enquiryId:enquiry,contactId:c1,stage:'Negotiation',amount:'125000',products:'Zoho CRM',scope:'Sales pipeline'};
@@ -71,13 +101,13 @@ try {
   await request({kind:'record',operation:'edit',module:'proposals',id:p2,title:prefix+' Proposal v2',companyId:co,data:accepted});
   await request({kind:'record',operation:'edit',module:'proposals',id:p2,title:prefix+' Proposal v2',companyId:co,data:{...accepted,amount:'119000'}},400);
   assert.ok((await request()).records.find(r=>r.id===p1));pass('Proposal versions remain separate; acceptance is validated and accepted versions are protected');
-  const invoiceData={proposalId:p2,invoiceNumber:prefix+'-INV-001',invoiceDate:'2026-10-13',amount:'120000',paidAmount:'0',dueDate:'2026-10-20',status:'Unpaid',nextFollowUp:'2026-10-16'};
+  const invoiceData={proposalId:p2,invoiceNumber:prefix+'-INV-001',invoiceDate:'2026-10-13',amount:'120000',paidAmount:'0',dueDate:'2026-10-20',status:'Unpaid',nextFollowUp:'2026-10-16',followUpAction:'Call accounts to confirm payment date'};
   const invoice=await create('invoices','INV-001',invoiceData,co);
   await request({kind:'record',operation:'edit',module:'invoices',id:invoice,title:prefix+' INV-001',companyId:co,data:{...invoiceData,status:'Paid'}},400);
   await request({kind:'record',operation:'edit',module:'invoices',id:invoice,title:prefix+' INV-001',companyId:co,data:{...invoiceData,status:'Part paid',paidAmount:'40000'}});
   await request({kind:'record',operation:'create',module:'invoices',title:'Rejected draft link',companyId:co,data:{...invoiceData,proposalId:p1,invoiceNumber:prefix+'-INV-002'}},400);
   pass('Manual invoices enforce accepted links and consistent payment amounts');
-  await request({kind:'record',operation:'edit',module:'opportunities',id:opp,title:prefix+' CRM implementation',companyId:co,data:{...oppData,stage:'Accepted'}});
+  await stage(opp,'Accepted',{amount:'125000'});
   await create('projects','Zoho CRM delivery',{opportunityId:opp,status:'Planning',startDate:'2026-10-13',dueDate:'2026-11-13'},co);pass('Accepted opportunity links to implementation');
   await request({kind:'record',operation:'delete',module:'companies',id:co},400);
   await request({kind:'record',operation:'edit',module:'contacts',id:c2,title:'Invalid contact',companyId:co,data:{email:'invalid'}},400);
@@ -93,14 +123,16 @@ try {
   const branch=prefix+'-branch';db.prepare('INSERT INTO roles (id,name,parent_id) VALUES (?,?,?)').run(branch,'Unrelated branch','admin');fixtures.push(branch);
   const other=fixtureUser('other',branch,profile.id);
   const directRecord=fixtureRecord('direct',subordinate),indirectRecord=fixtureRecord('indirect',indirect),peerRecord=fixtureRecord('peer-record',peer),otherRecord=fixtureRecord('other-record',other),aboveRecord=fixtureRecord('above-record',above);
+  db.prepare('INSERT INTO audit (id,actor_id,action,target,details,created_at) VALUES (?,?,?,?,?,?)').run(prefix+'-hidden-event',peer,'transition','record:'+peerRecord,JSON.stringify({fromStage:'New Lead',toStage:'Connected',data:{stageNote:prefix+' Hidden peer information'}}),new Date().toISOString());
   db.prepare('UPDATE users SET role_id=?,profile_id=? WHERE id=?').run('manager',profile.id,me.id);
   const manager=await request();const ids=manager.records.map(r=>r.id);
   assert.ok(ids.includes(directRecord)&&ids.includes(indirectRecord));assert.ok(!ids.includes(peerRecord)&&!ids.includes(otherRecord)&&!ids.includes(aboveRecord));
   assert.deepEqual(manager.users,[]);assert.deepEqual(manager.profiles,[]);assert.deepEqual(manager.audit,[]);
+  assert.ok(!manager.stageHistory.some(e=>e.recordId===peerRecord));assert.ok(manager.stageHistory.every(e=>ids.includes(e.recordId)));
   await request({kind:'record',operation:'edit',module:'enquiries',id:peerRecord,title:'Forbidden',data:{receivedDate:'2026-10-13',requirements:'test'}},404);
   await request({kind:'record',operation:'delete',module:'enquiries',id:directRecord},403);
   await request({kind:'role',operation:'create',name:'Forbidden role'},403);
-  await request({kind:'record',operation:'edit',module:'enquiries',id:directRecord,title:'Allowed edit',data:{receivedDate:'2026-10-13',requirements:'Updated by manager',status:'Connected'}});
+  await stage(directRecord,'Connected',{requirements:'Updated by manager'});
   pass('Real API permits descendant visibility and edits but denies peer/branch access, Delete and Administration');
   p.enquiries.view=false;db.prepare('UPDATE profiles SET permissions=? WHERE id=?').run(JSON.stringify(p),profile.id);
   assert.ok(!(await request()).records.some(r=>r.module==='enquiries'));
@@ -108,7 +140,7 @@ try {
   db.prepare('UPDATE users SET active=0 WHERE id=?').run(me.id);await request(undefined,403);pass('Deactivated users lose access immediately');
 } finally {
   if(me)db.prepare('UPDATE users SET role_id=?,profile_id=?,active=? WHERE id=?').run(me.roleId,me.profileId,me.active,me.id);
-  for(const id of created)db.prepare('DELETE FROM records WHERE id=?').run(id);
+  for(const id of created){db.prepare('DELETE FROM audit WHERE target=? OR target=?').run('record:'+id,'lead:'+id);db.prepare('DELETE FROM records WHERE id=?').run(id);}
   for(const id of created)db.prepare('DELETE FROM settings WHERE key=?').run('lead_conversion:'+id);
   db.prepare("DELETE FROM audit WHERE details LIKE ? OR target LIKE ?").run('%'+prefix+'%','%'+prefix+'%');
   for(const id of fixtures){db.prepare('DELETE FROM users WHERE id=?').run(id);}

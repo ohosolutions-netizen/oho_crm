@@ -1,5 +1,5 @@
 import { APIError, allRecords, canSee, database, log, permit, type Context } from './server';
-import { canConvertLead, hasPermission, type CRMRecord } from './model';
+import { canConvertLead, followUpDate, type CRMRecord } from './model';
 function text(value:unknown,fallback='',limit=10000) {if(value==null)return fallback;if(typeof value!=='string'||value.length>limit)throw new APIError('Enter valid conversion details.');return value.trim();}
 function date(value:string,label:string) {if(value&&(!/^\d{4}-\d{2}-\d{2}$/.test(value)||!Number.isFinite(Date.parse(value))||new Date(value).toISOString().slice(0,10)!==value))throw new APIError(`Enter a valid ${label}.`);return value;}
 export async function convertLead(c:Context,b:Record<string,unknown>) {
@@ -37,11 +37,13 @@ export async function convertLead(c:Context,b:Record<string,unknown>) {
     else{permit(c,'contacts','create');contactId=crypto.randomUUID();insert('contacts',contactId,contactName,{email,phone,decisionMaker:'No'},companyId);}
   }
   const amount=text(b.amount,'0');if(!Number.isFinite(Number(amount))||Number(amount)<0)throw new APIError('Estimated value must be a non-negative number.');
-  const data:Record<string,string>={enquiryId:lead.id,contactId,stage:'Solution planning',products:lead.data.products||'',amount:amount||'0',expectedClose:date(text(b.expectedClose),'expected close date'),nextFollowUp:date(text(b.nextFollowUp,lead.data.nextFollowUp||''),'follow-up date'),scope:lead.data.requirements||'',notes:lead.data.notes||''};
+  const nextFollowUp=date(text(b.nextFollowUp,followUpDate(lead)),'follow-up date');
+  const data:Record<string,string>={enquiryId:lead.id,contactId,stage:'Solution planning',products:lead.data.products||'',amount:amount||'0',expectedClose:date(text(b.expectedClose),'expected close date'),nextFollowUp,scope:lead.data.requirements||'',notes:lead.data.discoverySummary||lead.data.notes||'',followUpAction:nextFollowUp?text(b.followUpAction,lead.data.followUpAction||'Follow up on the proposed solution'):'',followUpTime:lead.data.followUpTime||'',followUpStatus:'Pending',followUpNeeded:nextFollowUp?'Yes':'No'};
+  if(nextFollowUp&&!data.followUpAction)throw new APIError('Describe the opportunity follow-up action.');
   insert('opportunities',id,title,data,companyId);
   const converted={...lead.data,status:'Converted',convertedOpportunityId:id,convertedAt:now};
   queries.push(database().prepare('UPDATE records SET company_id=?,data=?,updated_at=? WHERE id=?').bind(companyId,JSON.stringify(converted),now,lead.id));
-  queries.push(await log(c.me.id,'convert','lead:'+lead.id,{before:lead,opportunityId:id,companyId,contactId,after:{...lead,data:converted}}));
+  queries.push(await log(c.me.id,'convert','lead:'+lead.id,{before:lead,opportunityId:id,companyId,contactId,after:{...lead,data:converted},data:{stageNote:'Converted to opportunity',opportunityName:title,companyName:companyName||records.find(r=>r.id===companyId)?.title||'',contactName:contactName||records.find(r=>r.id===contactId)?.title||'',amount:data.amount,nextFollowUp:data.nextFollowUp,followUpAction:data.followUpAction}}));
   try{await database().batch(queries);}catch(e){if(e instanceof Error&&/UNIQUE constraint failed: settings.key/.test(e.message))throw new APIError('This lead has already been converted.',409);throw e;}
   return Response.json({ok:true,id,companyId,contactId,leadId:lead.id},{headers:{'Cache-Control':'no-store'}});
 }

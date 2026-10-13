@@ -96,6 +96,20 @@ export function indiaToday(now = new Date()) {
   return new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Kolkata',year:'numeric',month:'2-digit',day:'2-digit'}).format(now);
 }
 export function followUpDate(r: CRMRecord) {
-  if(['Completed','Cancelled','Paid','Rejected','Not qualified','Disqualified','Converted'].includes(r.data.status)||r.data.stage==='Closed lost'||r.data.stage==='Accepted') return '';
-  return r.data.nextFollowUp || (r.module==='enquiries'&&r.data.status==='Discovery scheduled'?r.data.discoveryDate:'') || (['activities','invoices','projects'].includes(r.module)?r.data.dueDate:'') || '';
+  if(['Completed','Cancelled','Paid','Rejected','Not qualified','Disqualified','Converted'].includes(r.data.status)||['Completed','Cancelled'].includes(r.data.followUpStatus)) return '';
+  if(['Closed lost','Accepted'].includes(r.data.stage)&&r.data.followUpNeeded!=='Yes')return '';
+  return r.data.nextFollowUp || (r.module==='enquiries'&&r.data.status==='Discovery scheduled'?r.data.discoveryDate:'') || (r.module==='opportunities'&&r.data.stage==='Proposal preparation'?r.data.proposalDueDate:'') || (['activities','invoices','projects'].includes(r.module)?r.data.dueDate:'') || '';
 }
+export function followUpAction(r:CRMRecord){return r.data.followUpAction||(r.module==='enquiries'&&r.data.status==='Discovery scheduled'?'Attend discovery meeting':r.module==='opportunities'&&r.data.stage==='Proposal preparation'?'Prepare and review the proposal':r.module==='activities'?r.data.notes||r.data.type||'Complete activity':r.module==='invoices'?'Follow up on invoice payment':r.module==='projects'?'Review implementation progress':'Follow up with customer');}
+export function followUpTime(r:CRMRecord){
+  if(r.data.followUpTime)return r.data.followUpTime;
+  if(r.module==='enquiries'&&r.data.status==='Discovery scheduled'&&(!r.data.nextFollowUp||r.data.nextFollowUp===r.data.discoveryDate))return r.data.discoveryTime||'';
+  if(r.module==='activities'&&(!r.data.nextFollowUp||r.data.nextFollowUp===r.data.dueDate))return r.data.time||'';
+  return '';
+}
+export function followUpLabel(r:CRMRecord,today=indiaToday()){
+  const due=followUpDate(r);if(due)return due<today?'Overdue':due===today?'Due today':'Upcoming';
+  if(r.data.followUpStatus==='Completed')return 'Completed';if(r.data.followUpStatus==='Cancelled')return 'Cancelled';return 'No follow-up';
+}
+export const followUpFields:Field[]=[{key:'followUpAction',label:'Follow-up action',type:'textarea'},{key:'followUpTime',label:'Follow-up time (India)',type:'time'}];
+for(const key of ['enquiries','opportunities','invoices','projects'])modules[key].fields.push(...followUpFields);

@@ -1,13 +1,15 @@
 import { context, allRecords, canSee, permit, database, log, APIError, errorResponse, checkOrigin } from '../../../lib/server';
 import { modules, fullPermissions, hasPermission, visibleOwner, validHierarchy, type Role, type PermissionMap, type Member } from '../../../lib/model';
 import { convertLead } from '../../../lib/workflow';
+import { transition, updateFollowUp, visibleHistory } from '../../../lib/stage-service';
+import { followUpErrors } from '../../../lib/stage-rules';
 export const dynamic='force-dynamic';
 export async function GET() {
   try {
     const c=await context(); const admin=hasPermission(c.permissions,'administration','view');
     const records=(await allRecords()).filter(r=>canSee(c,r));
     const owners=c.members.filter(u=>visibleOwner(c.me,u,c.roles)).map(u=>({id:u.id,name:u.name,active:u.active}));
-    return Response.json({me:c.me,permissions:c.permissions,roles:c.roles,owners,records,
+    return Response.json({me:c.me,permissions:c.permissions,roles:c.roles,owners,records,stageHistory:await visibleHistory(c,records),
       profiles:admin?c.profiles.map(p=>({...p,permissions:JSON.parse(p.permissions)})):[],users:admin?c.members:[],
       audit:admin?await (database().prepare('SELECT * FROM audit ORDER BY created_at DESC LIMIT 150').all()).then(x=>x.results):[]
     },{headers:{'Cache-Control':'no-store'}});
@@ -24,6 +26,8 @@ export async function POST(req:Request) {
     const kind=string(b.kind,'operation',true); const operation=string(b.operation,'action',true);
     if(!['create','edit','delete'].includes(operation)) throw new APIError('Unknown action.');
     if(kind==='convert') {if(operation!=='create')throw new APIError('Unknown conversion action.');return await convertLead(c,b);}
+    if(kind==='transition'){if(operation!=='edit')throw new APIError('Unknown stage action.');return await transition(c,b);}
+    if(kind==='followup'){if(operation!=='edit')throw new APIError('Unknown follow-up action.');return await updateFollowUp(c,b);}
     const id=operation==='create'?crypto.randomUUID():string(b.id,'record ID',true);
     const queries: D1PreparedStatement[]=[];
     if(kind==='record') {
@@ -44,7 +48,7 @@ export async function POST(req:Request) {
         const companyId=module==='companies'?null:string(b.companyId,'company')||null;
         if(companyId) { const co=existing.find(r=>r.id===companyId&&r.module==='companies'); if(!co||!canSee(c,co)) throw new APIError('Select an accessible company.'); }
         if(['contacts','opportunities','proposals','invoices','projects'].includes(module)&&!companyId) throw new APIError('Select a company.');
-        const input=(b.data||{}) as Record<string,unknown>; const data:Record<string,string>={};
+        const input=(b.data||{}) as Record<string,unknown>; const data:Record<string,string>={...old?.data};
         for(const f of modules[module].fields) {
           const v=string(input[f.key],f.label,!!f.required); data[f.key]=v;
           if(f.options&&v&&!f.options.includes(v)) throw new APIError(`Invalid ${f.label}.`);
@@ -61,6 +65,15 @@ export async function POST(req:Request) {
             if(module==='projects'&&f.key==='opportunityId'&&linked.data.stage!=='Accepted') throw new APIError('Implementation must link to an accepted opportunity.');
           }
         }
+        if(['enquiries','opportunities'].includes(module)){
+          const stageKey=module==='enquiries'?'status':'stage';const initial=module==='enquiries'?'New Lead':'Solution planning';
+          if(operation==='create'&&data[stageKey]!==initial)throw new APIError(`New records start at ${initial}. Use Change stage to capture the information for later stages.`);
+          if(old&&data[stageKey]!==old.data[stageKey])throw new APIError('Use Change stage to capture the required transition details.');
+        }
+        if(data.nextFollowUp&&(!old||data.nextFollowUp!==old.data.nextFollowUp||data.followUpAction!==old.data.followUpAction)){
+          const errors=followUpErrors(data);if(errors.length)throw new APIError(errors.join(' '));data.followUpStatus='Pending';data.followUpNeeded='Yes';data.followUpCompletionNote='';data.followUpCompletedAt='';
+        }
+        if(!data.nextFollowUp&&old?.data.nextFollowUp){data.followUpStatus='Cancelled';data.followUpNeeded='No';}
         if(module==='enquiries') {
           if(data.status==='Converted')throw new APIError('Use Convert to opportunity to convert this lead.');
           if(data.status==='Discovery scheduled'&&!data.discoveryDate)throw new APIError('Set the discovery meeting date before scheduling discovery.');

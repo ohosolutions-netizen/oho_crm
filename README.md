@@ -26,6 +26,12 @@ An explicit Convert to opportunity action is available after connection. It crea
 
 Opportunity stages: Solution planning → Proposal preparation → Proposal sent → Negotiation → Accepted / Closed lost. Meetings and proposal versions attach to opportunities.
 
+Stage changes open a dedicated information form. Outreach captures contact method, date, outcome, and a note; a not-connected lead also requires a follow-up. Discovery captures meeting arrangements and findings. Commercial stages capture scope, proposal reference/recipient/date, negotiation points, or acceptance/loss details. Normal record editing cannot bypass this form, and new leads/opportunities start at their initial stage.
+
+Each update retains its actor, time, stage information, and follow-up decision in the record history. Follow-ups capture a date, optional India time, and a specific action. The dashboard and list use the same overdue/due-today/upcoming status. Completing a follow-up requires an outcome note, removes it from the pending queue, and keeps the outcome in history. Stage and follow-up writes reject stale record versions.
+
+Lead and opportunity lists are the default view. Text has been enlarged throughout the workspace (16px body/navigation, 15px record cells, 14px table headings).
+
 Older lead and opportunity status names are normalized when read, so existing data remains usable without rewriting historical migrations.
 
 ## Local development on Windows
@@ -51,6 +57,7 @@ The package build script, Vinext integration, and Sites packaging are retained.
 ```powershell
 node node_modules/typescript/bin/tsc --noEmit
 node --experimental-strip-types --test tests/permissions.test.mjs
+node --experimental-strip-types --test tests/stage-rules.test.mjs
 $env:CRM_TEST_LOCAL='1'
 node --experimental-strip-types tests/api-regression.mjs
 ```
