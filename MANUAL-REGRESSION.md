@@ -44,6 +44,7 @@
 - Stage history retains captured information and actor, and excludes hidden peer/branch records.
 - Follow-up completion requires an outcome, suppresses the pending action, and retains that outcome after rescheduling.
 - Stale updates are rejected without overwriting newer changes.
+- Record owner changes persist, so follow-up rows show the assigned owner.
 
 ## Production onboarding checks
 

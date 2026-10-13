@@ -93,7 +93,7 @@ export async function POST(req:Request) {
         }
         const now=new Date().toISOString();
         if(operation==='create') queries.push(database().prepare('INSERT INTO records (id,module,title,owner_id,company_id,data,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)').bind(id,module,title,ownerId,companyId,JSON.stringify(data),now,now));
-        else queries.push(database().prepare('UPDATE records SET title=?,company_id=?,data=?,updated_at=? WHERE id=?').bind(title,companyId,JSON.stringify(data),now,id));
+        else queries.push(database().prepare('UPDATE records SET title=?,owner_id=?,company_id=?,data=?,updated_at=? WHERE id=?').bind(title,ownerId,companyId,JSON.stringify(data),now,id));
       }
     } else {
       permit(c,'administration',operation as 'create'|'edit'|'delete');

@@ -119,6 +119,9 @@ try {
   const profile=await request({kind:'profile',operation:'create',name:prefix+' Sales',permissions:p});fixtures.push(profile.id);
   await request({kind:'user',operation:'create',name:'Incomplete',email:'incomplete@example.test',roleId:'manager'},400);
   const newUser=await request({kind:'user',operation:'create',name:prefix+' Invite',email:prefix+'@example.test',roleId:'executive',profileId:profile.id});fixtures.push(newUser.id);pass('Users require both role and profile');
+  const reassigned=(await request()).records.find(r=>r.id===c2);
+  await request({kind:'record',operation:'edit',id:c2,module:'contacts',title:reassigned.title,companyId:co,ownerId:newUser.id,data:reassigned.data});
+  assert.equal((await request()).records.find(r=>r.id===c2).ownerId,newUser.id);pass('Record reassignment persists the owner used by follow-up views');
   const subordinate=fixtureUser('executive','executive',profile.id),indirect=fixtureUser('junior',role.id,profile.id),peer=fixtureUser('peer','manager',profile.id),above=fixtureUser('above','admin','administrator');
   const branch=prefix+'-branch';db.prepare('INSERT INTO roles (id,name,parent_id) VALUES (?,?,?)').run(branch,'Unrelated branch','admin');fixtures.push(branch);
   const other=fixtureUser('other',branch,profile.id);
