@@ -2,6 +2,8 @@
 
 # dependencies
 /node_modules
+**/node_modules/
+/catalyst/hosted-client/
 /.pnp
 .pnp.*
 .yarn/*
@@ -24,6 +26,7 @@
 
 # debug
 npm-debug.log*
+catalyst-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
@@ -55,3 +58,6 @@ next-env.d.ts
 /.codex/
 /outputs/
 /work/
+
+# Generated Catalyst function bundles (rebuild from source).
+/catalyst/functions/*/handler*.cjs

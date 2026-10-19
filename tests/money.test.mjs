@@ -1,0 +1,2 @@
+import {test} from 'node:test';import assert from 'node:assert/strict';import {moneyTotals} from '../lib/money.ts';
+test('totals retain separate currencies and legacy amounts default to INR',()=>{const text=moneyTotals([{data:{amount:'100'}},{data:{amount:'200',currency:'USD'}},{data:{amount:'50',currency:'USD'}}]);assert.ok(text.includes('100'));assert.ok(text.includes('250'));assert.ok(text.includes(' / '));assert.ok(!text.includes('350'));});

@@ -4,7 +4,7 @@ function text(value:unknown,fallback='',limit=10000) {if(value==null)return fall
 function date(value:string,label:string) {if(value&&(!/^\d{4}-\d{2}-\d{2}$/.test(value)||!Number.isFinite(Date.parse(value))||new Date(value).toISOString().slice(0,10)!==value))throw new APIError(`Enter a valid ${label}.`);return value;}
 export async function convertLead(c:Context,b:Record<string,unknown>) {
   permit(c,'enquiries','edit');permit(c,'opportunities','create');
-  const records=await allRecords();const lead=records.find(r=>r.id===b.leadId&&r.module==='enquiries');
+  const records=await allRecords("module<>'enquiries' OR id=?",[b.leadId]);const lead=records.find(r=>r.id===b.leadId&&r.module==='enquiries');
   if(!lead||!canSee(c,lead))throw new APIError('Lead unavailable.',404);
   if(!canConvertLead(lead.data))throw new APIError(lead.data.status==='Converted'?'This lead has already been converted.':'Connect with the lead before converting it to an opportunity.',409);
   if(records.some(r=>r.module==='opportunities'&&r.data.enquiryId===lead.id))throw new APIError('This lead already has a linked opportunity.',409);
@@ -38,7 +38,8 @@ export async function convertLead(c:Context,b:Record<string,unknown>) {
   }
   const amount=text(b.amount,'0');if(!Number.isFinite(Number(amount))||Number(amount)<0)throw new APIError('Estimated value must be a non-negative number.');
   const nextFollowUp=date(text(b.nextFollowUp,followUpDate(lead)),'follow-up date');
-  const data:Record<string,string>={enquiryId:lead.id,contactId,stage:'Solution planning',products:lead.data.products||'',amount:amount||'0',expectedClose:date(text(b.expectedClose),'expected close date'),nextFollowUp,scope:lead.data.requirements||'',notes:lead.data.discoverySummary||lead.data.notes||'',followUpAction:nextFollowUp?text(b.followUpAction,lead.data.followUpAction||'Follow up on the proposed solution'):'',followUpTime:lead.data.followUpTime||'',followUpStatus:'Pending',followUpNeeded:nextFollowUp?'Yes':'No'};
+  const data:Record<string,string>={enquiryId:lead.id,contactId,stage:'Solution planning',currency:'INR',products:lead.data.products||'',amount:amount||'0',expectedClose:date(text(b.expectedClose),'expected close date'),expectedCloseTime:text(b.expectedCloseTime),nextFollowUp,scope:lead.data.requirements||'',discoverySummary:lead.data.discoverySummary||'',notes:lead.data.discoverySummary||lead.data.notes||'',followUpAction:nextFollowUp?text(b.followUpAction,lead.data.followUpAction||'Follow up on the proposed solution'):'',followUpTime:text(b.followUpTime,lead.data.followUpTime||''),followUpStatus:'Pending',followUpNeeded:nextFollowUp?'Yes':'No'};
+  for(const key of ['expectedCloseTime','followUpTime'])if(data[key]&&!/^([01]\d|2[0-3]):[0-5]\d$/.test(data[key]))throw new APIError('Enter a valid time.');
   if(nextFollowUp&&!data.followUpAction)throw new APIError('Describe the opportunity follow-up action.');
   insert('opportunities',id,title,data,companyId);
   const converted={...lead.data,status:'Converted',convertedOpportunityId:id,convertedAt:now};

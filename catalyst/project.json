@@ -1,0 +1,7 @@
+{
+  "projectId": "77605000000054301",
+  "organizationId": "60091125992",
+  "dataCenter": "in",
+  "environment": "Development",
+  "tables": {"Roles":"77605000000046207","Profiles":"77605000000041973","ModulePermissions":"77605000000050564","Users":"77605000000054324","Companies":"77605000000050923","Contacts":"77605000000045214","Leads":"77605000000055301","Opportunities":"77605000000048404","Activities":"77605000000036405","Proposals":"77605000000053388","Invoices":"77605000000042226","Implementations":"77605000000054683","FollowUps":"77605000000056201","StageHistory":"77605000000044317","AuditLog":"77605000000046566","Settings":"77605000000042585","ConversionClaims":"77605000000052214","BackendCommits":"77605000000042944","BackendChunks":"77605000000047102"}
+}

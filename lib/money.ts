@@ -1,0 +1,3 @@
+import {currencies,type CRMRecord} from './model.ts';
+export function formatMoney(value:unknown,currency='INR'){return new Intl.NumberFormat('en-IN',{style:'currency',currency:currencies.includes(currency)?currency:'INR',maximumFractionDigits:2}).format(Number(value||0));}
+export function moneyTotals(records:CRMRecord[],value:(r:CRMRecord)=>number=r=>Number(r.data.amount||0)){const totals=new Map<string,number>();for(const r of records){const currency=r.data.currency||'INR';totals.set(currency,(totals.get(currency)||0)+value(r));}return [...totals].map(([currency,amount])=>formatMoney(amount,currency)).join(' / ')||formatMoney(0);}

@@ -1,0 +1,8 @@
+// Exact labels from OHO's Zoho CRM picklists.
+export const zohoLeadSources=["CEO Email","Chat","Cold Call","Database","Database_Suresh","Direct Call","Employee Referral","Exhibition","External Referral","Facebook","Facebook Ads","Google AdWords","Inquiry Form","LinkedIn","Meta Ads","Outreach","Partner","Reference","Twitter","UniGlobal Team","Website Enquiry","WHATSAPP - OHO Solutions","Zoho","Zoho Bookings","Zoho Partner Store","A&A Associates","Advertisement","Affiliates","DIRECT","Digital Marketing","Direct Email","GoogleAds","Lakshman Zoho","ORGANIC","Premium Cars","SOCIAL","Sales Email Alias","TimelinesAI: +919778425798","Web Research","WebSite Visit","WhatsApp - OHO Solutions -+919995092193","Zoho Bigin"];
+export const notInterestedReasons=["Research Purpose(Student)","Cannot afford at this stage","Needs Incompatible with Zoho Product","Other Partner Associated","Accidental Registration","Casual Login","Duplicate Lead","No Contact Number","Deal Won_Old Lead","Old Lead","Needs Incompatable with Zoho Product"];
+// Keep older saved labels valid while the existing data is migrated from Zoho CRM.
+export const leadSources=['',...zohoLeadSources,...['Referral','Website','Email','WhatsApp','Phone','Event','Other'].filter(s=>!zohoLeadSources.includes(s))];
+export const disqualificationReasons=[...notInterestedReasons,'No budget','Not a fit for our services','Not ready / timing','Chose another provider','No longer interested','Duplicate or invalid enquiry'];
+
+for(const value of ['Bigin Campaign 04022023','Bigin Campaign 09032023','Jagadeep Zoho','OHO Customer','Online Store','Public Relations','Samuel Zoho','ZB_Feb2023_Muthalali'])if(!leadSources.includes(value))leadSources.push(value);

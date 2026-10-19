@@ -1,0 +1,62 @@
+// Standalone function. Expose its REST API with backend-only authentication.
+// Arguments: last_sync_time (required ISO timestamp), sync_until, after_id.
+// Configure a CRM connection named oho_crm_read with
+// ZohoCRM.coql.READ and ZohoCRM.modules.leads.READ.
+// Select the API domain matching your CRM account before installing.
+string standalone.oho_lead_delta(string last_sync_time, string sync_until, string after_id)
+{
+    result = Map();
+    if(last_sync_time == null || !last_sync_time.matches("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(Z|[+-][0-9]{2}:[0-9]{2})$"))
+    {
+        result.put("error","last_sync_time must be an ISO timestamp with timezone");
+        return result.toString();
+    }
+    if(sync_until == null || sync_until == "")
+    {
+        sync_until = zoho.currenttime.toString("yyyy-MM-dd'T'HH:mm:ssXXX");
+    }
+    if(!sync_until.matches("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(Z|[+-][0-9]{2}:[0-9]{2})$"))
+    {
+        result.put("error","sync_until must be an ISO timestamp with timezone");
+        return result.toString();
+    }
+    criteria = "(Created_Time >= '" + last_sync_time + "' and Created_Time <= '" + sync_until + "')";
+    if(after_id != null && after_id != "")
+    {
+        if(!after_id.matches("^[0-9]+$"))
+        {
+            result.put("error","Invalid after_id");
+            return result.toString();
+        }
+        criteria = "(" + criteria + " and id > " + after_id + ")";
+    }
+    query = "select id, First_Name, Last_Name, Full_Name, Company, Email, Phone, Mobile, Lead_Source, Lead_Status, Description, Owner, Created_Time, Modified_Time from Leads where " + criteria + " order by id asc limit 200";
+    payload = Map();
+    payload.put("select_query",query);
+    response = invokeurl
+    [
+        url :"https://www.zohoapis.in/crm/v8/coql"
+        type :POST
+        parameters:payload.toString()
+        headers:{"Content-Type":"application/json"}
+        connection:"oho_crm_read"
+    ];
+    leads = ifnull(response.get("data"),List());
+    if(response.get("code") != null && response.get("code") != "NO_CONTENT")
+    {
+        result.put("error","CRM query failed");
+        result.put("code",response.get("code"));
+        return result.toString();
+    }
+    info = ifnull(response.get("info"),Map());
+    next_id = "";
+    if(leads.size() > 0)
+    {
+        next_id = leads.get(leads.size() - 1).get("id").toString();
+    }
+    result.put("data",leads);
+    result.put("sync_until",sync_until);
+    result.put("more_records",ifnull(info.get("more_records"),false));
+    result.put("next_after_id",next_id);
+    return result.toString();
+}

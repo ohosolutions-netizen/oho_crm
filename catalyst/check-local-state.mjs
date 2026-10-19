@@ -1,0 +1,12 @@
+import assert from 'node:assert/strict';
+import {readFile,readdir} from 'node:fs/promises';
+import {memory,snapshot,entities} from './state.mjs';
+import {project} from './projections.mjs';
+const backups=await readdir(new URL('../.sites-runtime/backups/',import.meta.url));
+const state=JSON.parse(await readFile(new URL('../.sites-runtime/backups/'+backups.sort().at(-1),import.meta.url),'utf8'));
+const db=memory(state);assert.deepEqual(snapshot(db),state);
+const before=snapshot(db);db.exec('BEGIN');db.prepare('UPDATE users SET name=? WHERE id=?').run('Rollback test',state.users[0].id);db.exec('ROLLBACK');assert.deepEqual(snapshot(db),before);
+const projections=project(state);assert.equal(projections.Companies.length,state.records.filter(r=>r.module==='companies').length);assert.equal(projections.Users[0].Email,state.users[0].email);assert.equal(projections.Users[0].Active,true);
+assert.equal(projections.ModulePermissions.length,state.profiles.reduce((n,p)=>n+Object.keys(JSON.parse(p.permissions)).length,0));
+const schema=JSON.parse(await readFile(new URL('./schema.json',import.meta.url),'utf8'));assert.equal(Object.keys(schema).length,19);assert.ok(schema.BackendCommits.find(c=>c.column_name==='RevisionKey').is_unique);assert.ok(schema.Users.find(c=>c.column_name==='Email').is_unique);
+db.close();console.log('Passed checkpoint round-trip, transaction rollback, projection mapping, permission rows, and unique schema checks. Cloud writes remain untested.');

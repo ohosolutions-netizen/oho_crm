@@ -1,0 +1,1 @@
+{"deployment": {"name": "zoholeadsync", "stack": "node22", "type": "job", "memory": 512}, "execution": {"main": "index.js"}}

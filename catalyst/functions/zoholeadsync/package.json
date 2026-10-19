@@ -1,0 +1,1 @@
+{"name":"zoholeadsync","version":"1.0.0","main":"index.js","dependencies":{"site-creator-vinext-starter":"file:../../..","zcatalyst-sdk-node":"3.4.0"}}

@@ -1,0 +1,28 @@
+import {leadSources} from './lead-picklists.ts';
+import {leadStages,indiaToday} from './model.ts';
+export type ImportedLead={title:string;data:Record<string,string>;row:number;errors:string[]};
+export function parseCSV(text:string):string[][]{
+ const rows:string[][]=[];let row:string[]=[],cell='',quoted=false,afterQuote=false;
+ text=text.replace(/^\uFEFF/,'');
+ for(let i=0;i<text.length;i++){const c=text[i];if(quoted){if(c==='"'){if(text[i+1]==='"'){cell+='"';i++;}else{quoted=false;afterQuote=true;}}else cell+=c;}else if(c==='"'&&!cell&&!afterQuote)quoted=true;else if(c===','){row.push(cell);cell='';afterQuote=false;}else if(c==='\r'||c==='\n'){if(c==='\r'&&text[i+1]==='\n')i++;row.push(cell);if(row.some(v=>v.trim()))rows.push(row);row=[];cell='';afterQuote=false;}else{if(afterQuote&&!/\s/.test(c))throw new Error('Invalid CSV quoting. Export the file as CSV from Zoho CRM.');if(!afterQuote)cell+=c;}}
+ if(quoted)throw new Error('The CSV contains an unclosed quote.');row.push(cell);if(row.some(v=>v.trim()))rows.push(row);return rows;
+}
+const key=(s:string)=>s.toLowerCase().replace(/[^a-z0-9]/g,'');
+export function importDate(value:string):{date:string;time:string}{
+ if(!value.trim())return {date:'',time:''};
+ const iso=value.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/),local=value.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})/);
+ let date=iso?`${iso[1]}-${iso[2].padStart(2,'0')}-${iso[3].padStart(2,'0')}`:local?`${local[3]}-${local[2].padStart(2,'0')}-${local[1].padStart(2,'0')}`:'';
+ const clock=value.match(/[T\s](\d{1,2}):(\d{2})(?::\d{2})?\s*(AM|PM)?/i);let time='';if(clock){let hour=Number(clock[1]);if(clock[3]){hour%=12;if(clock[3].toUpperCase()==='PM')hour+=12;}if(hour<24&&Number(clock[2])<60)time=String(hour).padStart(2,'0')+':'+clock[2];}
+ if(date){const d=new Date(date+'T12:00:00Z');if(!Number.isFinite(d.valueOf())||d.toISOString().slice(0,10)!==date)date='';}
+ return {date,time};
+}
+export function importedStage(value:string){const existing=leadStages.find(s=>s.toLowerCase()===value.toLowerCase()&&s!=='Converted');if(existing)return existing;const mapping:Record<string,string>={'not contacted':'New Lead','attempted to contact':'Not connected','contact in future':'Contacted','contacted':'Contacted','pre-qualified':'Connected','qualified':'Discovery completed','not qualified':'Disqualified','lead lost':'Disqualified','non qualified':'Disqualified','not pitched':'New Lead','confused':'Contacted','future lead':'Contacted','call connected':'Connected','interested':'Connected','meeting conducted':'Discovery completed','meeting scheduled':'Discovery scheduled','meeting not scheduled':'Connected','not interested':'Disqualified','junk lead':'Disqualified','lost lead':'Disqualified','new':'New Lead'};return mapping[value.toLowerCase()]||'New Lead';}
+export function previewZohoCSV(text:string):ImportedLead[]{
+ const rows=parseCSV(text);if(rows.length<2)throw new Error('The CSV needs a header and at least one lead.');if(rows.length>501)throw new Error('Import up to 500 leads per file.');
+ const headers=rows[0].map(key);if(!headers.some(h=>['lastname','fullname','name','leadname','email'].includes(h)))throw new Error('Use a Zoho CRM Leads export with Last Name, Full Name, Lead Name or Email columns.');
+ return rows.slice(1).map((cells,i)=>{const get=(...names:string[])=>{for(const n of names){const index=headers.indexOf(key(n));if(index>=0&&cells[index]?.trim())return cells[index].trim();}return '';};const first=get('First Name'),last=get('Last Name'),email=get('Email'),title=get('Full Name','Lead Name','Name')||[first,last].filter(Boolean).join(' ')||email;
+ const originalSource=get('Lead Source','Source').replace(/^(-None-|None)$/i,''),source=leadSources.find(s=>s.toLowerCase()===originalSource.toLowerCase())||(!originalSource?'Other':originalSource),crmStatus=get('Lead Status','Status'),created=get('Created Time','Created Date','Received Date'),follow=get('Follow up Date and Time','Follow-up Date','Next Follow-up','Next Follow Up'),received=importDate(created),due=importDate(follow),reason=get('Reason For Not Interested','Not Interested Reason','Disqualification Reason').replace(/^(-None-|None)$/i,''),notes=get('Description','Notes');
+ const errors:string[]=[];if(!title)errors.push('Name or email missing');if(cells.length!==headers.length)errors.push('Column count does not match header');if(originalSource&&!leadSources.includes(source))errors.push('Unknown Lead Source: '+originalSource);if(created&&!received.date)errors.push('Invalid Created Time (use YYYY-MM-DD or DD/MM/YYYY)');if(follow&&!due.date)errors.push('Invalid follow-up date');if(email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))errors.push('Invalid email');
+ const data={zohoCreatedTime:created,zohoCRMId:get('Record Id','Lead Id','Id'),zohoCRMStatus:crmStatus,zohoCRMOwner:get('Lead Owner','Lead Owner Name','Owner'),companyName:get('Company','Company Name'),contactName:title,email,phone:get('Phone','Mobile'),source,status:importedStage(crmStatus),receivedDate:received.date||indiaToday(),receivedTime:received.time,requirements:get('Requirements','Customer Requirements')||notes||'Imported from Zoho CRM',notes,notInterestedReason:reason,disqualificationReason:reason,secondarySource:get('Secondary Source'),serviceName:get('Service Name'),referredBy:get('Referred By'),nextFollowUp:due.date,followUpTime:due.time,followUpAction:get('Reason For Followup','Reason For Follow-up','Follow-up Action')||(due.date?'Follow up with customer':''),followUpNeeded:due.date?'Yes':'No',followUpStatus:'Pending',importOrigin:'Zoho CRM'};
+ return {title,data,row:i+2,errors};});
+}

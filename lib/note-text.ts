@@ -1,0 +1,4 @@
+const entities:Record<string,string>={amp:'&',lt:'<',gt:'>',quot:'"',apos:"'",nbsp:' ',ndash:'\u2013',mdash:'\u2014',hellip:'\u2026',bull:'\u2022'};
+export function noteText(value:string){
+ return value.replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1\s*>/gi,'').replace(/<!--[\s\S]*?-->/g,'').replace(/<br\b[^>]*\/?\s*>/gi,'\n').replace(/<li\b[^>]*>/gi,'\n\u2022 ').replace(/<\/(?:p|div|li|tr|h[1-6])\s*>/gi,'\n').replace(/<\/?[a-z][^>]*>/gi,'').replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi,(match,key:string)=>{if(key.startsWith('#')){const code=key[1].toLowerCase()==='x'?parseInt(key.slice(2),16):parseInt(key.slice(1),10);return code>0&&code<=0x10ffff&&!(code>=0xd800&&code<=0xdfff)?String.fromCodePoint(code):match;}return entities[key.toLowerCase()]??match;}).replace(/\r\n/g,'\n').replace(/\n[ \t]+/g,'\n').replace(/\n{3,}/g,'\n\n').trim();
+}

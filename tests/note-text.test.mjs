@@ -1,0 +1,4 @@
+import {test} from 'node:test';import assert from 'node:assert/strict';import {noteText} from '../lib/note-text.ts';
+test('Zoho line break tags display as separate readable lines',()=>{assert.equal(noteText('from joel zoho - <br>POC - Ameen (HR)<BR />Study abroad.'),'from joel zoho - \nPOC - Ameen (HR)\nStudy abroad.');});
+test('rich text retains text and decodes entities without rendering HTML',()=>{assert.equal(noteText('<div>CRM &amp; Books</div><p>People&nbsp;payroll</p>'),'CRM & Books\nPeople payroll');assert.equal(noteText('<script>alert(1)</script><b>Note</b>'),'Note');assert.equal(noteText('&lt;img src=x onerror=alert(1)&gt;'),'<img src=x onerror=alert(1)>');});
+test('plain notes and literal comparisons stay unchanged',()=>{assert.equal(noteText('Amount < 500\nCall HR'),'Amount < 500\nCall HR');});

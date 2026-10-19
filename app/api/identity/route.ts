@@ -5,7 +5,7 @@ function cookie(req:Request,email:string,maxAge:number) {
 }
 export async function POST(req:Request) {
   try {
-    checkOrigin(req); const body=await req.json() as {email?:unknown}; const email=validEmail(body.email);
+    checkOrigin(req); const body=await req.json() as {email?:unknown}; const email=typeof body.email==='string'&&/^[0-9a-f-]{36}$/i.test(body.email.trim())?body.email.trim():validEmail(body.email);
     const c=await context(email);
     return Response.json({ok:true,email:c.me.email},{headers:{'Set-Cookie':cookie(req,email,60*60*24*30),'Cache-Control':'no-store'}});
   }catch(e){return errorResponse(e);}

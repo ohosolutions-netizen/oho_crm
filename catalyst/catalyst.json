@@ -1,0 +1,1 @@
+{"client": {"source": "hosted-client"}, "functions": {"source": "functions", "targets": ["ohocrm", "zoholeadsync"]}}

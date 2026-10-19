@@ -69,6 +69,7 @@ export default defineConfig(async ({ command }) => {
         inspectorPort: false,
         config: {
           ...localBindingConfig,
+          ...(command === 'serve' && process.env.OHO_CATALYST_URL && process.env.OHO_CATALYST_TOKEN ? {vars:{OHO_CATALYST_URL:process.env.OHO_CATALYST_URL,OHO_CATALYST_TOKEN:process.env.OHO_CATALYST_TOKEN}} : {}),
           ...(command === "serve"
             ? {
                 services: [

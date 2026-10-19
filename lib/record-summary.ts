@@ -1,0 +1,3 @@
+import type {CRMRecord} from './model';
+const leadFields=new Set(['receivedDate','receivedTime','zohoCreatedTime','importedAt','status','source','contactName','email','phone','companyName','contactId','products','nextFollowUp','followUpTime','followUpAction','followUpStatus','followUpNeeded','discoveryDate','discoveryTime','convertedOpportunityId','notInterestedReason','zohoCRMId','zohoCRMStatus','zohoCRMOwner','discoveryActivityId']);
+export function summarizeRecord(record:CRMRecord):CRMRecord{return record.module==='enquiries'?{...record,data:{...Object.fromEntries(Object.entries(record.data).filter(([key,value])=>leadFields.has(key)&&value)),__summary:'1'}}:record;}

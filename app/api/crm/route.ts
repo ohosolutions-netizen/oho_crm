@@ -1,16 +1,31 @@
-import { context, allRecords, canSee, permit, database, log, APIError, errorResponse, checkOrigin } from '../../../lib/server';
-import { modules, fullPermissions, hasPermission, visibleOwner, validHierarchy, type Role, type PermissionMap, type Member } from '../../../lib/model';
+import {stageTiming} from '../../../lib/stage-timing';
+import {emptyLeadCriteria,leadViewNames,type LeadCriteria} from '../../../lib/lead-views';
+import { context, allRecords, rows, canSee, permit, database, log, APIError, errorResponse, checkOrigin } from '../../../lib/server';
+import {summarizeRecord} from '../../../lib/record-summary';
+import { modules, normalizeData, fullPermissions, hasPermission, visibleOwner, validHierarchy, type Role, type PermissionMap, type Member } from '../../../lib/model';
 import { convertLead } from '../../../lib/workflow';
-import { transition, updateFollowUp, visibleHistory } from '../../../lib/stage-service';
-import { followUpErrors } from '../../../lib/stage-rules';
+import { transition, updateFollowUp, visibleHistory, addNote } from '../../../lib/stage-service';
+import {importZohoLeads} from '../../../lib/zoho-import-service';
+import { followUpErrors,validDate } from '../../../lib/stage-rules';
 export const dynamic='force-dynamic';
-export async function GET() {
+export async function GET(req?:Request) {
   try {
     const c=await context(); const admin=hasPermission(c.permissions,'administration','view');
-    const records=(await allRecords()).filter(r=>canSee(c,r));
+    const params=req?new URL(req.url).searchParams:new URLSearchParams();
+    if(params.get('stageTiming')){const from=params.get('from')||'',to=params.get('to')||'';if(!validDate(from)||!validDate(to)||from>to)throw new APIError('Choose a valid date range.');const records=(await allRecords("module IN ('enquiries','opportunities')")).filter(r=>canSee(c,r));const events=await rows<{target:string;details:string;created_at:string}>("SELECT target,details,created_at FROM audit WHERE action IN ('transition','convert') ORDER BY created_at ASC");return Response.json(stageTiming(records,events.map(e=>{const d=JSON.parse(e.details);return {recordId:e.target.replace(/^(record|lead):/,''),fromStage:d.fromStage||(d.before?.data?.status)||'',toStage:d.toStage||'Converted',createdAt:e.created_at};}),from,to),{headers:{'Cache-Control':'no-store'}});}
+    if(params.get('id')){const found=await rows<Omit<import('../../../lib/model').CRMRecord,'data'> & {data:string}>('SELECT id,module,title,owner_id AS ownerId,company_id AS companyId,data,created_at AS createdAt,updated_at AS updatedAt FROM records WHERE id=?',params.get('id'));const record=found[0]?{...found[0],data:normalizeData(found[0].module,JSON.parse(found[0].data))}:null;if(!record||!canSee(c,record))throw new APIError('Record unavailable.',404);return Response.json({record,relatedTasks:(await allRecords("module='activities' AND (json_extract(data,'$.enquiryId')=? OR json_extract(data,'$.opportunityId')=?)",[record.id,record.id])).filter(r=>canSee(c,r)),stageHistory:[...await visibleHistory(c,[record]),...await importedNoteHistory(record.id)]},{headers:{'Cache-Control':'no-store'}});}
+    const limit=Math.min(5000,Math.max(1,Number(params.get('limit'))||5000)),offset=Math.max(0,Number(params.get('offset'))||0);
+    if(!Number.isInteger(limit)||!Number.isInteger(offset))throw new APIError('Invalid record page.');
+    const ownerIds=c.members.filter(u=>visibleOwner(c.me,u,c.roles)).map(u=>u.id),moduleIds=Object.keys(modules).filter(m=>hasPermission(c.permissions,m,'view'));
+    const where=ownerIds.length&&moduleIds.length?'owner_id IN ('+ownerIds.map(()=>'?').join(',')+') AND module IN ('+moduleIds.map(()=>'?').join(',')+')':'0=1',args=[...ownerIds,...moduleIds];
+    const totalRecords=(await rows<{count:number}>('SELECT COUNT(*) AS count FROM records WHERE '+where,...args))[0].count;
+    const records=await allRecords(where,args,'LIMIT '+limit+' OFFSET '+offset);
+    const displayedRecords=params.get('full')!=='1'?records.map(summarizeRecord):records;
+    const nextOffset=offset+records.length<totalRecords?offset+records.length:null;
     const owners=c.members.filter(u=>visibleOwner(c.me,u,c.roles)).map(u=>({id:u.id,name:u.name,active:u.active}));
-    return Response.json({me:c.me,permissions:c.permissions,roles:c.roles,owners,records,stageHistory:await visibleHistory(c,records),
+    return Response.json({me:c.me,permissions:c.permissions,roles:c.roles,owners,records:displayedRecords,totalRecords,nextOffset,stageHistory:await visibleHistory(c,records),
       profiles:admin?c.profiles.map(p=>({...p,permissions:JSON.parse(p.permissions)})):[],users:admin?c.members:[],
+      leadViews:(await rows<{value:string}>("SELECT value FROM settings WHERE key LIKE ?",'lead-view:'+c.me.id+':%')).map(r=>JSON.parse(r.value)),
       audit:admin?await (database().prepare('SELECT * FROM audit ORDER BY created_at DESC LIMIT 150').all()).then(x=>x.results):[]
     },{headers:{'Cache-Control':'no-store'}});
   }catch(e){return errorResponse(e);}
@@ -25,15 +40,19 @@ export async function POST(req:Request) {
     checkOrigin(req); const c=await context(); const b=await req.json() as Record<string,unknown>;
     const kind=string(b.kind,'operation',true); const operation=string(b.operation,'action',true);
     if(!['create','edit','delete'].includes(operation)) throw new APIError('Unknown action.');
+    if(kind==='lead-view'){permit(c,'enquiries','view');if(operation!=='create'&&operation!=='delete')throw new APIError('Unknown view action.');const viewId=operation==='create'?crypto.randomUUID():string(b.id,'view ID',true);const key='lead-view:'+c.me.id+':'+viewId;if(operation==='delete'){await database().batch([database().prepare('DELETE FROM settings WHERE key=?').bind(key)]);return Response.json({ok:true,id:viewId});}const name=string(b.name,'view name',true);if(name.length>80)throw new APIError('View name must be 80 characters or fewer.');const criteria=Object.fromEntries(Object.keys(emptyLeadCriteria()).map(k=>[k,string((b.criteria as Record<string,unknown>)?.[k],k)])) as LeadCriteria;if(!leadViewNames.includes(criteria.view))throw new APIError('Select a valid lead view.');for(const k of ['fromDate','toDate'] as const)if(criteria[k]&&!validDate(criteria[k]))throw new APIError('Select a valid date.');for(const k of ['fromTime','toTime'] as const)if(criteria[k]&&!/^([01]\d|2[0-3]):[0-5]\d$/.test(criteria[k]))throw new APIError('Select a valid time.');if(criteria.fromDate&&criteria.toDate&&Date.parse(criteria.fromDate+'T'+(criteria.fromTime||'00:00')+':00+05:30')>Date.parse(criteria.toDate+'T'+(criteria.toTime||'23:59')+':59+05:30'))throw new APIError('Created until must be after Created from.');const existingViews=await rows<{value:string}>("SELECT value FROM settings WHERE key LIKE ?",'lead-view:'+c.me.id+':%');if(existingViews.some(r=>JSON.parse(r.value).name.toLowerCase()===name.toLowerCase()))throw new APIError('A saved view already has this name.');const view={id:viewId,name,criteria,search:string(b.search,'search')};await database().batch([database().prepare('INSERT INTO settings (key,value) VALUES (?,?)').bind(key,JSON.stringify(view))]);return Response.json({ok:true,view});}
+    if(kind==='zoho-import'){if(operation!=='create')throw new APIError('Unknown import action.');return await importZohoLeads(c,b);}
     if(kind==='convert') {if(operation!=='create')throw new APIError('Unknown conversion action.');return await convertLead(c,b);}
     if(kind==='transition'){if(operation!=='edit')throw new APIError('Unknown stage action.');return await transition(c,b);}
+    if(kind==='note'){if(operation!=='edit')throw new APIError('Unknown note action.');return await addNote(c,b);}
     if(kind==='followup'){if(operation!=='edit')throw new APIError('Unknown follow-up action.');return await updateFollowUp(c,b);}
     const id=operation==='create'?crypto.randomUUID():string(b.id,'record ID',true);
-    const queries: D1PreparedStatement[]=[];
+    const queries: D1PreparedStatement[]=[];let recordBefore:unknown=null;
     if(kind==='record') {
       const module=string(b.module,'module',true); if(!modules[module]) throw new APIError('Unknown module.');
       permit(c,module,operation as 'create'|'edit'|'delete');
-      const existing=await allRecords(); const old=existing.find(r=>r.id===id);
+      const linkedIds=[id,...Object.values((b.data||{}) as Record<string,unknown>).filter(v=>typeof v==='string'&&/^[0-9a-f-]{36}$/i.test(v as string))];
+      const existing=await allRecords("module<>'enquiries' OR id IN ("+linkedIds.map(()=>'?').join(',')+") OR company_id=? OR EXISTS (SELECT 1 FROM json_each(records.data) WHERE value=?)",[...linkedIds,id,id]); const old=existing.find(r=>r.id===id);recordBefore=old||null;
       if(operation!=='create'&&(!old||old.module!==module||!canSee(c,old))) throw new APIError('Record unavailable.',404);
       if(module==='enquiries'&&old?.data.status==='Converted')throw new APIError('Converted leads are retained as history. Edit the linked opportunity.');
       if(operation==='delete') {
@@ -56,11 +75,12 @@ export async function POST(req:Request) {
           if(f.key==='version'&&v&&(!Number.isInteger(Number(v))||Number(v)<1)) throw new APIError('Proposal version must be a positive integer.');
           if(f.type==='date'&&v&&(!/^\d{4}-\d{2}-\d{2}$/.test(v)||!Number.isFinite(Date.parse(v))||new Date(v).toISOString().slice(0,10)!==v)) throw new APIError(`Invalid ${f.label}.`);
           if(f.type==='email'&&v&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) throw new APIError('Enter a valid email address.');
+          if(f.type==='time'&&v&&!/^([01]\d|2[0-3]):[0-5]\d$/.test(v))throw new APIError(`Enter a valid ${f.label}.`);
           if(f.type==='url'&&v) { try { if(!['https:','http:'].includes(new URL(v).protocol)) throw new Error(); } catch { throw new APIError(`${f.label} must start with https:// or http://.`); } }
           const linkModule:Record<string,string>={contact:'contacts',enquiry:'enquiries',opportunity:'opportunities',proposal:'proposals'};
           if(linkModule[f.type||'']&&v) {
             const linked=existing.find(r=>r.id===v&&r.module===linkModule[f.type!]);
-            if(!linked||!canSee(c,linked)||linked.companyId!==companyId) throw new APIError(`Select a ${f.label.toLowerCase()} for this company that you can access.`);
+            if(!linked||!canSee(c,linked)||linked.companyId!==companyId&&!(module==='opportunities'&&f.type==='enquiry'&&old?.data.enquiryId===v&&old.companyId===companyId)) throw new APIError(`Select a ${f.label.toLowerCase()} for this company that you can access.`);
             if(module==='invoices'&&f.key==='proposalId'&&linked.data.status!=='Accepted') throw new APIError('Invoices must link to an accepted proposal.');
             if(module==='projects'&&f.key==='opportunityId'&&linked.data.stage!=='Accepted') throw new APIError('Implementation must link to an accepted opportunity.');
           }
@@ -79,8 +99,12 @@ export async function POST(req:Request) {
           if(data.status==='Discovery scheduled'&&!data.discoveryDate)throw new APIError('Set the discovery meeting date before scheduling discovery.');
           if(data.discoveryTime&&!/^([01]\d|2[0-3]):[0-5]\d$/.test(data.discoveryTime))throw new APIError('Enter a valid discovery time.');
         }
+        if(module==='activities'&&old&&data.status!==old.data.status){data.followUpStatus=data.status==='Scheduled'?'Pending':data.status;data.followUpCompletedAt=data.status==='Scheduled'?'':new Date().toISOString();data.followUpCompletionNote=data.status==='Scheduled'?'':data.notes||'';}
+        if(module==='opportunities'&&(old?.data.acceptedProposalId||'')!==(data.acceptedProposalId||''))throw new APIError('Select the accepted proposal revision when closing the opportunity.');
         if(module==='companies'&&existing.some(r=>r.module===module&&r.id!==id&&r.title.toLowerCase()===title.toLowerCase())) throw new APIError('A company with this name already exists.');
         if(module==='proposals') {
+          if(data.status==='Accepted'&&old?.data.status!=='Accepted')throw new APIError('Select the accepted revision when closing the opportunity.');
+          if(old?.data.documentId&&(old.data.documentUrl!==data.documentUrl||old.data.version!==data.version||old.data.amount!==data.amount||(old.data.currency||'INR')!==(data.currency||'INR')))throw new APIError('Sent proposal documents and commercial versions are retained. Send a new revision instead.');
           if(existing.some(r=>r.module===module&&r.id!==id&&r.data.opportunityId===data.opportunityId&&r.data.version===data.version)) throw new APIError('This proposal version already exists for the opportunity.');
           if(old&&old.data.status==='Accepted'&&(old.title!==title||JSON.stringify(old.data)!==JSON.stringify(data)||old.companyId!==companyId)) throw new APIError('Accepted proposals are retained as a record. Create a new version to make changes.');
           if(data.status==='Accepted'&&(!data.acceptedDate||!data.acceptedBy)) throw new APIError('Record the acceptance date and person before accepting a proposal.');
@@ -132,8 +156,12 @@ export async function POST(req:Request) {
         queries.push(database().prepare('INSERT INTO users (id,email,name,role_id,profile_id,active) VALUES (?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,email=excluded.email,role_id=excluded.role_id,profile_id=excluded.profile_id,active=excluded.active').bind(id,email,name,roleId,profileId,active));
       } else throw new APIError('Unknown operation.');
     }
-    queries.push(await log(c.me.id,operation,`${kind}:${id}`,{module:b.module||'administration',before:kind==='record'?(await allRecords()).find(r=>r.id===id)||null:kind==='role'?c.roles.find(r=>r.id===id)||null:kind==='profile'?c.profiles.find(p=>p.id===id)||null:c.members.find(u=>u.id===id)||null,after:b}));
+    queries.push(await log(c.me.id,operation,`${kind}:${id}`,{module:b.module||'administration',before:kind==='record'?recordBefore:kind==='role'?c.roles.find(r=>r.id===id)||null:kind==='profile'?c.profiles.find(p=>p.id===id)||null:c.members.find(u=>u.id===id)||null,after:b}));
     await database().batch(queries);
     return Response.json({id,ok:true},{headers:{'Cache-Control':'no-store'}});
   }catch(e){return errorResponse(e);}
 }
+
+export async function changedRecords(ids:string[]){const c=await context();const records=ids.length?(await allRecords('id IN ('+ids.map(()=>'?').join(',')+')',ids)).filter(r=>canSee(c,r)):[];return {ids,records,stageHistory:await visibleHistory(c,records)};}
+
+async function importedNoteHistory(recordId:string){const notes=await rows<{key:string;value:string}>("SELECT key,value FROM settings WHERE key LIKE ?",'zoho-note:'+recordId+':%');return notes.map(row=>{const n=JSON.parse(row.value);return {id:row.key,recordId,actor:n.createdBy,fromStage:'',toStage:'Migrated note',data:{stageNote:n.content,noteTitle:n.title||'',createdBy:n.createdBy,source:'Zoho CRM'},createdAt:n.createdAt};});}
