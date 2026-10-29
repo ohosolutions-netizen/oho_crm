@@ -178,6 +178,15 @@ const date = (value: string) =>
       )
     : "â€”";
 
+const dateTime = (value: string) =>
+  value
+    ? new Intl.DateTimeFormat("en-IN", {
+        dateStyle: "medium",
+        timeStyle: "short",
+        timeZone: "Asia/Kolkata",
+      }).format(new Date(value))
+    : "â€”";
+
 const initials = (value: string) =>
   value
     .split(/[ @]+/)
@@ -1983,7 +1992,9 @@ function Detail({
           <h2 id="detail-title">{r.title}</h2>
           <Badge value={r.data.status || r.data.stage || "Active"} />
           {r.module === "enquiries" && bookedEnquiries.length > 0 && (
-            <span className="new-enquiry-tag">#NewEnquiry · {bookedEnquiries.length}</span>
+            <span className="new-enquiry-tag">
+              #NewEnquiry · {bookedEnquiries.length}
+            </span>
           )}
           <p>
             {r.companyId
@@ -2240,22 +2251,67 @@ function Detail({
                 )}
               </div>
               {linked.length ? (
-                linked.map((x) => (
-                  <button
-                    className="related-record"
-                    key={x.id}
-                    onClick={() => open(x)}
-                  >
-                    <span>
-                      <strong>{x.title}</strong>
-                      <small>
-                        {modules[x.module].name}{" "}
-                        {x.data.version ? "Â· Version " + x.data.version : ""}
-                      </small>
-                    </span>
-                    <ChevronRight size={16} />
-                  </button>
-                ))
+                linked.map((x) =>
+                  x.module === "leadEnquiries" ? (
+                    <article className="related-enquiry-card" key={x.id}>
+                      <header>
+                        <span>
+                          <strong>{x.title}</strong>
+                          <small>Enquiry information</small>
+                        </span>
+                        <Badge value={x.data.status || "Booked"} />
+                      </header>
+                      <dl>
+                        {modules.leadEnquiries.fields
+                          .filter(
+                            (field) =>
+                              field.key !== "enquiryId" && x.data[field.key],
+                          )
+                          .map((field) => (
+                            <div
+                              key={field.key}
+                              className={
+                                field.type === "textarea"
+                                  ? "full-detail"
+                                  : undefined
+                              }
+                            >
+                              <dt>{field.label}</dt>
+                              <dd>
+                                {field.type === "date"
+                                  ? date(x.data[field.key])
+                                  : field.key.endsWith("Time") &&
+                                      Number.isFinite(
+                                        Date.parse(x.data[field.key]),
+                                      )
+                                    ? dateTime(x.data[field.key])
+                                    : x.data[field.key]}
+                              </dd>
+                            </div>
+                          ))}
+                        <div>
+                          <dt>OHO CRM created time</dt>
+                          <dd>{dateTime(x.createdAt)}</dd>
+                        </div>
+                      </dl>
+                    </article>
+                  ) : (
+                    <button
+                      className="related-record"
+                      key={x.id}
+                      onClick={() => open(x)}
+                    >
+                      <span>
+                        <strong>{x.title}</strong>
+                        <small>
+                          {modules[x.module].name}{" "}
+                          {x.data.version ? "Â· Version " + x.data.version : ""}
+                        </small>
+                      </span>
+                      <ChevronRight size={16} />
+                    </button>
+                  ),
+                )
               ) : (
                 <p className="subtle">No linked records yet.</p>
               )}

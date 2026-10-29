@@ -181,11 +181,17 @@ export const modules: Record<
     singular: "enquiry",
     description: "Repeated customer enquiries linked to their lead record.",
     fields: [
-      { key: "enquiryId", label: "Linked lead", type: "enquiry", required: true },
+      {
+        key: "enquiryId",
+        label: "Linked lead",
+        type: "enquiry",
+        required: true,
+      },
       { key: "phone", label: "Phone", required: true },
       { key: "email", label: "Email", type: "email" },
       { key: "source", label: "Lead source", options: leadSources },
       { key: "enquiryAt", label: "Enquiry received", type: "date" },
+      { key: "zohoCreatedTime", label: "Zoho CRM created time" },
       { key: "status", label: "Enquiry status", options: ["Booked"] },
       { key: "notes", label: "Enquiry details", type: "textarea" },
       { key: "zohoCRMId", label: "Zoho CRM lead ID" },
