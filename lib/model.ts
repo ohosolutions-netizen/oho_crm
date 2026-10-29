@@ -103,7 +103,7 @@ export const modules: Record<
     description: "Your customer relationships, in one place.",
     fields: [
       { key: "industry", label: "Industry" },
-      { key: "website", label: "Website", type: "url" },
+      { key: "website", label: "Website", type: "url", required: true },
       { key: "email", label: "Company email", type: "email" },
       { key: "phone", label: "Phone" },
       { key: "gst", label: "GST / tax number" },
@@ -123,7 +123,7 @@ export const modules: Record<
     fields: [
       { key: "designation", label: "Designation" },
       { key: "email", label: "Email", type: "email" },
-      { key: "phone", label: "Phone" },
+      { key: "phone", label: "Phone", required: true },
       { key: "decisionMaker", label: "Decision maker", options: ["No", "Yes"] },
       { key: "notes", label: "Notes", type: "textarea" },
     ],

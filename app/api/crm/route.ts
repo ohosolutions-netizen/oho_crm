@@ -317,8 +317,18 @@ function comparablePhone(value: unknown) {
   const digits = String(value || "").replace(/\D/g, "");
   return digits.length >= 10 ? digits.slice(-10) : digits;
 }
+function comparableWebsite(value: unknown) {
+  try {
+    const url = new URL(String(value || ""));
+    return url.hostname.toLowerCase().replace(/^www\./, "");
+  } catch {
+    return "";
+  }
+}
 function terminalDuplicateLead(status: string) {
-  return ["Converted", "Lead Lost", "Junk Lead", "Disqualified"].includes(status);
+  return ["Converted", "Lead Lost", "Junk Lead", "Disqualified"].includes(
+    status,
+  );
 }
 export async function POST(req: Request) {
   try {
@@ -436,7 +446,8 @@ export async function POST(req: Request) {
           (v) => typeof v === "string" && /^[0-9a-f-]{36}$/i.test(v as string),
         ),
       ];
-      const detectingDuplicate = operation === "create" && module === "enquiries";
+      const detectingDuplicate =
+        operation === "create" && module === "enquiries";
       const existing = await allRecords(
         detectingDuplicate
           ? "1=1"
@@ -700,6 +711,33 @@ export async function POST(req: Request) {
           )
         )
           throw new APIError("A company with this name already exists.");
+        if (
+          module === "companies" &&
+          existing.some(
+            (r) =>
+              r.module === module &&
+              r.id !== id &&
+              comparableWebsite(r.data.website) &&
+              comparableWebsite(r.data.website) ===
+                comparableWebsite(data.website),
+          )
+        )
+          throw new APIError(
+            "This website is already assigned to another company.",
+          );
+        if (
+          module === "contacts" &&
+          existing.some(
+            (r) =>
+              r.module === module &&
+              r.id !== id &&
+              comparablePhone(r.data.phone) &&
+              comparablePhone(r.data.phone) === comparablePhone(data.phone),
+          )
+        )
+          throw new APIError(
+            "This phone number is already assigned to another contact.",
+          );
         if (module === "proposals") {
           if (data.status === "Accepted" && old?.data.status !== "Accepted")
             throw new APIError(
@@ -777,7 +815,8 @@ export async function POST(req: Request) {
                   (record) =>
                     record.module === "enquiries" &&
                     comparablePhone(record.data.phone) &&
-                    comparablePhone(record.data.phone) === comparablePhone(data.phone),
+                    comparablePhone(record.data.phone) ===
+                      comparablePhone(data.phone),
                 )
                 .sort((a, z) => z.updatedAt.localeCompare(a.updatedAt))[0]
             : undefined;
@@ -797,11 +836,13 @@ export async function POST(req: Request) {
               source: data.source || "Other",
               enquiryAt: data.receivedDate || now.slice(0, 10),
               status: "Booked",
-              notes: data.requirements || data.notes || "Repeated enquiry received",
+              notes:
+                data.requirements || data.notes || "Repeated enquiry received",
               zohoCRMId: data.zohoCRMId || "",
             };
             title = `${title} enquiry`;
-            if (!changedIds.includes(duplicateLead.id)) changedIds.push(duplicateLead.id);
+            if (!changedIds.includes(duplicateLead.id))
+              changedIds.push(duplicateLead.id);
           } else {
             relatedEnquiryId = crypto.randomUUID();
             changedIds.push(relatedEnquiryId);
@@ -840,7 +881,8 @@ export async function POST(req: Request) {
             source: data.source || "Other",
             enquiryAt: data.receivedDate || now.slice(0, 10),
             status: "Booked",
-            notes: data.requirements || data.notes || "Repeated enquiry received",
+            notes:
+              data.requirements || data.notes || "Repeated enquiry received",
             zohoCRMId: data.zohoCRMId || "",
           };
           queries.push(
@@ -875,7 +917,9 @@ export async function POST(req: Request) {
                   title,
                   duplicatePhone: data.phone,
                   enquiryId: relatedEnquiryId || id,
-                  newLeadCreated: terminalDuplicateLead(duplicateLead.data.status),
+                  newLeadCreated: terminalDuplicateLead(
+                    duplicateLead.data.status,
+                  ),
                 }),
                 now,
               ),
