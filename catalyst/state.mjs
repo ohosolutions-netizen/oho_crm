@@ -11,6 +11,7 @@ export {entities,applyDelta,deltaPayload};
 export function memory(state){
   const db=new DatabaseSync(':memory:');db.exec(sql);db.exec('PRAGMA foreign_keys=OFF');
   for(const table of entities){const statements=new Map();for(const row of state[table]||[]){const keys=Object.keys(row),key=keys.join(',');let statement=statements.get(key);if(!statement){statement=db.prepare(`INSERT INTO ${table} (${key}) VALUES (${keys.map(()=>'?').join(',')})`);statements.set(key,statement);}statement.run(...Object.values(row));}}
+  db.exec("CREATE INDEX IF NOT EXISTS records_page_idx ON records(module,owner_id,updated_at DESC,id);CREATE INDEX IF NOT EXISTS records_company_idx ON records(company_id);CREATE INDEX IF NOT EXISTS records_lead_link_idx ON records(json_extract(data,'$.enquiryId')) WHERE module='opportunities';CREATE INDEX IF NOT EXISTS audit_target_action_idx ON audit(target,action,created_at)");
   db.exec('PRAGMA foreign_keys=ON');return db;
 }
 export function snapshot(db){return Object.fromEntries(entities.map(t=>[t,db.prepare(`SELECT * FROM ${t}`).all().map(r=>({...r}))]));}

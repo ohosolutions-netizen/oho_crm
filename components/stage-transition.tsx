@@ -1,36 +1,678 @@
-'use client';
-import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { ArrowRight, AlertCircle, CalendarDays, X } from 'lucide-react';
-import { indiaToday, followUpDate, followUpAction, leadStages, stages, type CRMRecord } from '../lib/model';
-import DateTimePicker, {indiaTime} from './date-time-picker';
-import Select from './select';
-import {disqualificationReasons} from '../lib/lead-picklists';
-import ProposalUpload from './proposal-upload';
-import {proposalVersions,proposalLabel} from '../lib/proposal-revisions';
-import {dateTimeKey} from '../lib/model';
-import {linkedOpenTasks} from '../lib/transition-tasks';
-import { stageRules, stageOf, stageErrors, type StageRule } from '../lib/stage-rules';
-type Props={record:CRMRecord;targetStage:string;records:CRMRecord[];canEditActivities:boolean;refresh:(record:CRMRecord)=>Promise<{record:CRMRecord;records:CRMRecord[]}>;close:()=>void;save:(p:Record<string,unknown>)=>Promise<unknown>};
-export default function StageTransition({record:initialRecord,targetStage,records:initialRecords,canEditActivities,refresh,close,save}:Props){
-  const [r,setRecordSnapshot]=useState(initialRecord),[records,setRecordsSnapshot]=useState(initialRecords),[saveFailed,setSaveFailed]=useState(false);
-  const linkedTasks=linkedOpenTasks(r,records),currentDue=followUpDate(r),hasTasks=!!currentDue||linkedTasks.length>0;
-  const revisions=proposalVersions(r.id,records).filter(p=>['Sent','Negotiating','Accepted'].includes(p.data.status));
-  const [uploadBusy,setUploadBusy]=useState(false);
-  const target=targetStage;const [values,setValues]=useState<Record<string,string>>(()=>{
-    const contact=records.find(x=>x.id===r.data.contactId);const proposal=records.find(x=>x.module==='proposals'&&x.data.opportunityId===r.id);
-    return {...r.data,contactName:r.data.contactName||contact?.title||'',contactMethod:r.data.contactMethod||'Call',contactDate:indiaToday(),contactTime:indiaTime(),proposalSentTime:indiaTime(),acceptedTime:indiaTime(),closedTime:indiaTime(),negotiationTime:indiaTime(),proposalSentDate:indiaToday(),negotiationDate:indiaToday(),acceptedDate:indiaToday(),closedDate:indiaToday(),proposalReference:r.data.proposalReference||(proposal?`${proposal.title} · v${proposal.data.version}`:''),proposalSentTo:r.data.proposalSentTo||contact?.data.email||contact?.title||'',acceptedBy:r.data.acceptedBy||contact?.title||'',proposalDocumentId:'',proposalDocumentName:'',acceptedProposalUpdatedAt:records.find(p=>p.id===r.data.acceptedProposalId)?.updatedAt||'',stageNote:'',proposalNote:'',currency:r.data.currency||'INR',closedTaskIds:'[]',taskDisposition:'Keep',linkedTaskVersions:JSON.stringify(linkedTasks.map(t=>({id:t.id,updatedAt:t.updatedAt}))),followUpNeeded:['Not Contacted','Not Pitched','Followup Later'].includes(targetStage)?'Yes':'No',nextFollowUp:currentDue||'',followUpAction:currentDue?followUpAction(r):'',followUpTime:currentDue?r.data.followUpTime||'':''};
+"use client";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import { ArrowRight, AlertCircle, CalendarDays, X } from "lucide-react";
+import {
+  indiaToday,
+  followUpDate,
+  followUpAction,
+  leadStages,
+  stages,
+  type CRMRecord,
+} from "../lib/model";
+import DateTimePicker, { indiaTime } from "./date-time-picker";
+import Select from "./select";
+import { disqualificationReasons } from "../lib/lead-picklists";
+import ProposalUpload from "./proposal-upload";
+import { proposalVersions, proposalLabel } from "../lib/proposal-revisions";
+import { dateTimeKey } from "../lib/model";
+import { linkedOpenTasks } from "../lib/transition-tasks";
+import {
+  stageRules,
+  stageOf,
+  stageErrors,
+  type StageRule,
+} from "../lib/stage-rules";
+type Props = {
+  record: CRMRecord;
+  targetStage: string;
+  records: CRMRecord[];
+  canEditActivities: boolean;
+  refresh: (
+    record: CRMRecord,
+  ) => Promise<{ record: CRMRecord; records: CRMRecord[] }>;
+  close: () => void;
+  save: (p: Record<string, unknown>) => Promise<unknown>;
+};
+export default function StageTransition({
+  record: initialRecord,
+  targetStage,
+  records: initialRecords,
+  canEditActivities,
+  refresh,
+  close,
+  save,
+}: Props) {
+  const [r, setRecordSnapshot] = useState(initialRecord),
+    [records, setRecordsSnapshot] = useState(initialRecords),
+    [saveFailed, setSaveFailed] = useState(false);
+  const linkedTasks = linkedOpenTasks(r, records),
+    currentDue = followUpDate(r),
+    hasTasks = !!currentDue || linkedTasks.length > 0;
+  const revisions = proposalVersions(r.id, records).filter((p) =>
+    ["Sent", "Negotiating", "Accepted"].includes(p.data.status),
+  );
+  const [uploadBusy, setUploadBusy] = useState(false);
+  const target = targetStage;
+  const [values, setValues] = useState<Record<string, string>>(() => {
+    const contact = records.find((x) => x.id === r.data.contactId);
+    const proposal = records.find(
+      (x) => x.module === "proposals" && x.data.opportunityId === r.id,
+    );
+    return {
+      ...r.data,
+      contactName: r.data.contactName || contact?.title || "",
+      contactMethod: r.data.contactMethod || "Call",
+      contactDate: indiaToday(),
+      contactTime: indiaTime(),
+      proposalSentTime: indiaTime(),
+      acceptedTime: indiaTime(),
+      closedTime: indiaTime(),
+      negotiationTime: indiaTime(),
+      proposalSentDate: indiaToday(),
+      negotiationDate: indiaToday(),
+      acceptedDate: indiaToday(),
+      closedDate: indiaToday(),
+      proposalReference:
+        r.data.proposalReference ||
+        (proposal ? `${proposal.title} · v${proposal.data.version}` : ""),
+      proposalSentTo:
+        r.data.proposalSentTo || contact?.data.email || contact?.title || "",
+      acceptedBy: r.data.acceptedBy || contact?.title || "",
+      proposalDocumentId: "",
+      proposalDocumentName: "",
+      acceptedProposalUpdatedAt:
+        records.find((p) => p.id === r.data.acceptedProposalId)?.updatedAt ||
+        "",
+      stageNote: "",
+      proposalNote: "",
+      currency: r.data.currency || "INR",
+      closedTaskIds: "[]",
+      taskDisposition: "Keep",
+      linkedTaskVersions: JSON.stringify(
+        linkedTasks.map((t) => ({ id: t.id, updatedAt: t.updatedAt })),
+      ),
+      followUpNeeded: [
+        "Not Contacted",
+        "Not Pitched",
+        "Followup Later",
+      ].includes(targetStage)
+        ? "Yes"
+        : "No",
+      nextFollowUp: currentDue || "",
+      followUpAction: currentDue ? followUpAction(r) : "",
+      followUpTime: currentDue ? r.data.followUpTime || "" : "",
+    };
   });
-  const [busy,setBusy]=useState(false),[error,setError]=useState(''),[closeOpenTasks,setCloseOpenTasks]=useState('');const form=useRef<HTMLFormElement>(null);
-  const rule:StageRule=stageRules[r.module][target];
-  const reasonKey=['Disqualified','Junk Lead','Lead Lost'].includes(target)?'disqualificationReason':target==='Closed lost'?'lossReason':'';
-  const reasons=['Disqualified','Junk Lead','Lead Lost'].includes(target)?disqualificationReasons:['No budget','Not a fit for our services','Not ready / timing','Chose another provider','No longer interested','Duplicate or invalid enquiry'];
-  const [reason,setReason]=useState('');
-  const fields=rule.fields.filter(f=>f.type!=='time'&&f.key!=='contactDate'&&f.required);
-  useEffect(()=>{form.current?.querySelector<HTMLElement>('[role="combobox"],textarea,input:not(.control-validation),[aria-haspopup="dialog"]')?.focus();},[]);
-  useEffect(()=>{const key=(e:KeyboardEvent)=>{if(e.key==='Escape'&&!busy)close();if(e.key==='Tab'&&form.current){const nodes=Array.from(form.current.querySelectorAll<HTMLElement>('button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled])'));const first=nodes[0],last=nodes[nodes.length-1];if(e.shiftKey&&document.activeElement===first){e.preventDefault();last?.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first?.focus();}}};document.addEventListener('keydown',key);return()=>document.removeEventListener('keydown',key);},[busy,close]);
-  const set=(key:string,value:string)=>setValues(v=>({...v,[key]:value}));
-  async function submit(e:FormEvent){e.preventDefault();setError('');setSaveFailed(false);if(hasTasks&&!closeOpenTasks){setError('Choose whether to close open tasks.');return;}if(closeOpenTasks==='Yes'&&values.taskDisposition!=='Close'&&!JSON.parse(values.closedTaskIds||'[]').length){setError('Select at least one task to close, or choose No.');return;}const keep=currentDue&&values.taskDisposition==='Keep';const data:Record<string,string>={...values,...Object.fromEntries(rule.fields.map(f=>[f.key,values[f.key]||f.options?.[0]||''])),...(keep&&rule.terminal?{nextFollowUp:currentDue,followUpAction:followUpAction(r),followUpTime:r.data.followUpTime||''}:{}),followUpNeeded:keep||rule.requiresFollowUp?'Yes':values.followUpNeeded};data.contactDate=indiaToday();data.contactTime=indiaTime();data.stageNote=data.stageNote?.trim()||data.proposalNote?.trim()||data.followUpAction?.trim()||fields.map(f=>`${f.label}: ${f.key==='acceptedProposalId'?(revisions.find(p=>p.id===data[f.key])?.title||'Selected proposal'):data[f.key]||f.options?.[0]||''}`).join('; ')||`Moved to ${target}`;if(target==='Proposal sent'&&!data.proposalDocumentId){setError('Upload the proposal document before marking it sent.');return;}const errors=stageErrors(r.module,target,data);if(errors.length){setError(errors.join(' '));return;}setBusy(true);try{await save({kind:'transition',operation:'edit',id:r.id,targetStage:target,expectedUpdatedAt:r.updatedAt,data});close();}catch(e){setSaveFailed(true);setError(e instanceof Error?e.message:'Unable to save stage.');}finally{setBusy(false);}}
-  async function refreshRecord(){setBusy(true);try{const latest=await refresh(r);setRecordSnapshot(latest.record);setRecordsSnapshot(latest.records);setValues(v=>({...v,taskDisposition:'Keep',closedTaskIds:'[]',linkedTaskVersions:JSON.stringify(linkedOpenTasks(latest.record,latest.records).map(t=>({id:t.id,updatedAt:t.updatedAt})))}));setCloseOpenTasks('');setSaveFailed(false);setError('Refreshed. Current stage: '+stageOf(latest.record)+'. Your entered details are retained; review them before saving again.');}catch(e){setError(e instanceof Error?e.message:'Unable to refresh record.');}finally{setBusy(false);}}
-  return <div className="modal-overlay"><form className="editor-dialog transition-dialog" role="dialog" aria-modal="true" aria-labelledby="transition-title" onSubmit={submit} ref={form}><div className="editor-heading"><div><span className="eyebrow">STAGE UPDATE / {r.title}</span><h2 id="transition-title">Move to {target}</h2></div><button type="button" className="icon-button" onClick={close} disabled={busy} aria-label="Close stage transition"><X size={21}/></button></div><div className="editor-body"><div className="form-grid">{fields.map(f=><label key={f.key} className={f.type==='textarea'||f.key==='acceptedProposalId'?'full':''} htmlFor={'transition-'+f.key}><span>{f.label}{f.type==='date'?' & time':''}{f.required&&<em> *</em>}</span>{f.key==='acceptedProposalId'?<Select aria-label="Accepted proposal revision" required disabled={busy} value={values.acceptedProposalId||''} onChange={e=>{const p=revisions.find(p=>p.id===e.target.value);setValues(v=>({...v,acceptedProposalId:e.target.value,acceptedProposalUpdatedAt:p?.updatedAt||'',amount:p?.data.amount||v.amount,currency:p?.data.currency||v.currency}));}}><option value="">Choose accepted proposal revision</option>{revisions.map(p=><option key={p.id} value={p.id}>{proposalLabel(p)} · {p.data.currency||r.data.currency||'INR'} {Number(p.data.amount||0).toLocaleString('en-IN')}</option>)}</Select>:f.key===reasonKey?<><Select aria-label={f.label} required value={reason} disabled={busy} onChange={e=>{setReason(e.target.value);set(f.key,e.target.value==='Other'?'':e.target.value);}}><option value="">Choose a reason</option>{reasons.map(x=><option key={x}>{x}</option>)}<option>Other</option></Select>{reason==='Other'&&<textarea aria-label="Other reason" required rows={2} placeholder="Tell us why" disabled={busy} value={values[f.key]||''} onChange={e=>set(f.key,e.target.value)}/>}</>:f.type==='date'?<DateTimePicker id={'transition-'+f.key} label={f.label+' & time'} date={values[f.key]||''} time={values[dateTimeKey(f.key,r.module)]||''} required={f.required} disabled={busy} onChange={(date,time)=>setValues(v=>({...v,[f.key]:date,[dateTimeKey(f.key,r.module)]:time}))}/>:f.options?<Select id={'transition-'+f.key} required={f.required} disabled={busy} value={values[f.key]||f.options[0]} onChange={e=>set(f.key,e.target.value)}>{f.options.map(s=><option key={s}>{s}</option>)}</Select>:f.type==='textarea'?<textarea id={'transition-'+f.key} required={f.required} disabled={busy} rows={2} value={values[f.key]||''} onChange={e=>set(f.key,e.target.value)}/>:<input id={'transition-'+f.key} type={f.type||'text'} required={f.required} disabled={busy} value={values[f.key]||''} min={f.type==='number'?0:undefined} step={f.type==='number'?'any':undefined} onChange={e=>set(f.key,e.target.value)}/>}</label>)}</div>{target==='Proposal sent'&&<ProposalUpload opportunityId={r.id} name={values.proposalDocumentName||''} disabled={busy} pending={setUploadBusy} change={(id,name)=>setValues(v=>({...v,proposalDocumentId:id,proposalDocumentName:name}))}/>} {target==='Accepted'&&!revisions.length&&<p className="form-note">Send a proposal revision before closing this opportunity.</p>}{!rule.terminal&&<section className="followup-capture"><div className="form-grid">{!rule.requiresFollowUp&&<label className="full"><span>Does this need a follow-up?</span><Select id="transition-followUpNeeded" value={rule.requiresFollowUp?'Yes':values.followUpNeeded} disabled={busy||rule.requiresFollowUp} onChange={e=>set('followUpNeeded',e.target.value)}><option>No</option><option>Yes</option></Select>{rule.requiresFollowUp&&<small className="form-note">A lead that was not connected needs a next contact attempt.</small>}</label>}{(rule.requiresFollowUp||values.followUpNeeded==='Yes'||currentDue&&values.taskDisposition==='Keep')&&<><label className="full"><span>Note</span><textarea aria-label="Stage note" rows={2} disabled={busy} placeholder="Add context for this follow-up" value={values.stageNote||''} onChange={e=>set('stageNote',e.target.value)}/></label><label><span>Follow-up date & time <em>*</em></span><DateTimePicker label="Follow-up date & time" date={values.nextFollowUp||''} time={values.followUpTime||''} required disabled={busy} onChange={(date,time)=>setValues(v=>({...v,nextFollowUp:date,followUpTime:time}))}/></label><label><span>Follow-up action <em>*</em></span><textarea id="transition-followUpAction" required rows={1} disabled={busy} placeholder="For example: call Priya to confirm the discovery meeting" value={values.followUpAction||''} onChange={e=>set('followUpAction',e.target.value)}/></label></>}</div></section>}{error&&<div className="error-banner" role="alert"><AlertCircle size={18}/><span>{error}</span>{saveFailed&&<button type="button" className="text-button" disabled={busy} onClick={()=>void refreshRecord()}>Refresh record</button>}</div>}{hasTasks&&<section className="current-task-choice"><label className="task-close-question"><span>Close open tasks? <em>*</em></span><Select aria-label="Close open tasks?" required value={closeOpenTasks} disabled={busy} onChange={e=>{setCloseOpenTasks(e.target.value);if(e.target.value!=='Yes')setValues(v=>({...v,taskDisposition:'Keep',closedTaskIds:'[]'}));}}><option value="">Choose an answer</option><option>No</option><option>Yes</option></Select></label>{closeOpenTasks==='Yes'&&<><h3>Choose tasks to close</h3><div className="transition-task-table-wrap"><table className="records-table transition-task-table"><colgroup><col style={{width:58}}/><col/><col style={{width:112}}/></colgroup><thead><tr><th>Close</th><th>Task</th><th>Due</th></tr></thead><tbody>{currentDue&&<tr><td><input type="checkbox" aria-label="Close current follow-up" checked={values.taskDisposition==='Close'} disabled={busy} onChange={e=>set('taskDisposition',e.target.checked?'Close':'Keep')}/></td><td>{followUpAction(r)}</td><td>{currentDue}</td></tr>}{linkedTasks.map(t=><tr key={t.id}><td><input type="checkbox" aria-label={'Close '+t.title} disabled={busy||!canEditActivities} checked={JSON.parse(values.closedTaskIds||'[]').includes(t.id)} onChange={e=>{const ids:string[]=JSON.parse(values.closedTaskIds||'[]');set('closedTaskIds',JSON.stringify(e.target.checked?[...ids,t.id]:ids.filter(id=>id!==t.id)));}}/></td><td>{t.title}</td><td>{t.data.dueDate}</td></tr>)}</tbody></table></div><p className="form-note">Unchecked tasks remain open.</p></>}</section>}{currentDue&&values.taskDisposition==='Keep'&&<p className="form-note">{rule.requiresFollowUp?'The follow-up stays open with the date, time and action shown above.':'The existing follow-up stays open; you can update its date, time and action above.'}</p>}</div><div className="editor-footer"><span/><div><button className="secondary" type="button" disabled={busy} onClick={close}>Cancel</button><button className="primary" type="submit" disabled={busy||uploadBusy}>{busy?'Saving…':'Save update'}</button></div></div></form></div>;
+  const [busy, setBusy] = useState(false),
+    [error, setError] = useState(""),
+    [closeOpenTasks, setCloseOpenTasks] = useState("");
+  const form = useRef<HTMLFormElement>(null);
+  const baseRule: StageRule = stageRules[r.module][target];
+  const reproposal =
+    r.module === "opportunities" &&
+    r.data.stage === "Proposal sent" &&
+    target === "Proposal preparation";
+  const rule: StageRule = reproposal
+    ? {
+        ...baseRule,
+        fields: [
+          ...baseRule.fields,
+          {
+            key: "reproposalReason",
+            label: "Reason for preparing another proposal",
+            type: "textarea",
+            required: true,
+          },
+        ],
+      }
+    : baseRule;
+  const reasonKey = ["Disqualified", "Junk Lead", "Lead Lost"].includes(target)
+    ? "disqualificationReason"
+    : target === "Closed lost"
+      ? "lossReason"
+      : "";
+  const reasons = ["Disqualified", "Junk Lead", "Lead Lost"].includes(target)
+    ? disqualificationReasons
+    : [
+        "No budget",
+        "Not a fit for our services",
+        "Not ready / timing",
+        "Chose another provider",
+        "No longer interested",
+        "Duplicate or invalid enquiry",
+      ];
+  const [reason, setReason] = useState("");
+  const fields = rule.fields.filter(
+    (f) => f.type !== "time" && f.key !== "contactDate" && f.required,
+  );
+  useEffect(() => {
+    form.current
+      ?.querySelector<HTMLElement>(
+        '[role="combobox"],textarea,input:not(.control-validation),[aria-haspopup="dialog"]',
+      )
+      ?.focus();
+  }, []);
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !busy) close();
+      if (e.key === "Tab" && form.current) {
+        const nodes = Array.from(
+          form.current.querySelectorAll<HTMLElement>(
+            "button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled])",
+          ),
+        );
+        const first = nodes[0],
+          last = nodes[nodes.length - 1];
+        if (e.shiftKey && document.activeElement === first) {
+          e.preventDefault();
+          last?.focus();
+        } else if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault();
+          first?.focus();
+        }
+      }
+    };
+    document.addEventListener("keydown", key);
+    return () => document.removeEventListener("keydown", key);
+  }, [busy, close]);
+  const set = (key: string, value: string) =>
+    setValues((v) => ({ ...v, [key]: value }));
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setError("");
+    setSaveFailed(false);
+    if (hasTasks && !closeOpenTasks) {
+      setError("Choose whether to close open tasks.");
+      return;
+    }
+    if (
+      closeOpenTasks === "Yes" &&
+      values.taskDisposition !== "Close" &&
+      !JSON.parse(values.closedTaskIds || "[]").length
+    ) {
+      setError("Select at least one task to close, or choose No.");
+      return;
+    }
+    const keep = currentDue && values.taskDisposition === "Keep";
+    const data: Record<string, string> = {
+      ...values,
+      ...Object.fromEntries(
+        rule.fields.map((f) => [f.key, values[f.key] || f.options?.[0] || ""]),
+      ),
+      ...(keep && rule.terminal
+        ? {
+            nextFollowUp: currentDue,
+            followUpAction: followUpAction(r),
+            followUpTime: r.data.followUpTime || "",
+          }
+        : {}),
+      followUpNeeded:
+        keep || rule.requiresFollowUp ? "Yes" : values.followUpNeeded,
+    };
+    data.contactDate = indiaToday();
+    data.contactTime = indiaTime();
+    data.stageNote =
+      (target === "Proposal sent"
+        ? data.proposalNote?.trim()
+        : data.stageNote?.trim()) || "";
+    if (target === "Proposal sent" && !data.proposalDocumentId) {
+      setError("Upload the proposal document before marking it sent.");
+      return;
+    }
+    const errors = stageErrors(r.module, target, data);
+    if (errors.length) {
+      setError(errors.join(" "));
+      return;
+    }
+    setBusy(true);
+    try {
+      await save({
+        kind: "transition",
+        operation: "edit",
+        id: r.id,
+        targetStage: target,
+        expectedUpdatedAt: r.updatedAt,
+        data,
+      });
+      close();
+    } catch (e) {
+      setSaveFailed(true);
+      setError(e instanceof Error ? e.message : "Unable to save stage.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function refreshRecord() {
+    setBusy(true);
+    try {
+      const latest = await refresh(r);
+      setRecordSnapshot(latest.record);
+      setRecordsSnapshot(latest.records);
+      setValues((v) => ({
+        ...v,
+        taskDisposition: "Keep",
+        closedTaskIds: "[]",
+        linkedTaskVersions: JSON.stringify(
+          linkedOpenTasks(latest.record, latest.records).map((t) => ({
+            id: t.id,
+            updatedAt: t.updatedAt,
+          })),
+        ),
+      }));
+      setCloseOpenTasks("");
+      setSaveFailed(false);
+      setError(
+        "Refreshed. Current stage: " +
+          stageOf(latest.record) +
+          ". Your entered details are retained; review them before saving again.",
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Unable to refresh record.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="modal-overlay">
+      <form
+        className="editor-dialog transition-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="transition-title"
+        onSubmit={submit}
+        ref={form}
+      >
+        <div className="editor-heading">
+          <div>
+            <span className="eyebrow">STAGE UPDATE / {r.title}</span>
+            <h2 id="transition-title">Move to {target}</h2>
+          </div>
+          <button
+            type="button"
+            className="icon-button"
+            onClick={close}
+            disabled={busy}
+            aria-label="Close stage transition"
+          >
+            <X size={21} />
+          </button>
+        </div>
+        <div className="editor-body">
+          <div className="form-grid">
+            {fields.map((f) => (
+              <label
+                key={f.key}
+                className={
+                  f.type === "textarea" || f.key === "acceptedProposalId"
+                    ? "full"
+                    : ""
+                }
+                htmlFor={"transition-" + f.key}
+              >
+                <span>
+                  {f.label}
+                  {f.type === "date" ? " & time" : ""}
+                  {f.required && <em> *</em>}
+                </span>
+                {f.key === "acceptedProposalId" ? (
+                  <Select
+                    aria-label="Accepted proposal revision"
+                    required
+                    disabled={busy}
+                    value={values.acceptedProposalId || ""}
+                    onChange={(e) => {
+                      const p = revisions.find((p) => p.id === e.target.value);
+                      setValues((v) => ({
+                        ...v,
+                        acceptedProposalId: e.target.value,
+                        acceptedProposalUpdatedAt: p?.updatedAt || "",
+                        amount: p?.data.amount || v.amount,
+                        currency: p?.data.currency || v.currency,
+                      }));
+                    }}
+                  >
+                    <option value="">Choose accepted proposal revision</option>
+                    {revisions.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {proposalLabel(p)} ·{" "}
+                        {p.data.currency || r.data.currency || "INR"}{" "}
+                        {Number(p.data.amount || 0).toLocaleString("en-IN")}
+                      </option>
+                    ))}
+                  </Select>
+                ) : f.key === reasonKey ? (
+                  <>
+                    <Select
+                      aria-label={f.label}
+                      required
+                      value={reason}
+                      disabled={busy}
+                      onChange={(e) => {
+                        setReason(e.target.value);
+                        set(
+                          f.key,
+                          e.target.value === "Other" ? "" : e.target.value,
+                        );
+                      }}
+                    >
+                      <option value="">Choose a reason</option>
+                      {reasons.map((x) => (
+                        <option key={x}>{x}</option>
+                      ))}
+                      <option>Other</option>
+                    </Select>
+                    {reason === "Other" && (
+                      <textarea
+                        aria-label="Other reason"
+                        required
+                        rows={2}
+                        placeholder="Tell us why"
+                        disabled={busy}
+                        value={values[f.key] || ""}
+                        onChange={(e) => set(f.key, e.target.value)}
+                      />
+                    )}
+                  </>
+                ) : f.type === "date" ? (
+                  <DateTimePicker
+                    id={"transition-" + f.key}
+                    label={f.label + " & time"}
+                    date={values[f.key] || ""}
+                    time={values[dateTimeKey(f.key, r.module)] || ""}
+                    required={f.required}
+                    disabled={busy}
+                    onChange={(date, time) =>
+                      setValues((v) => ({
+                        ...v,
+                        [f.key]: date,
+                        [dateTimeKey(f.key, r.module)]: time,
+                      }))
+                    }
+                  />
+                ) : f.options ? (
+                  <Select
+                    id={"transition-" + f.key}
+                    required={f.required}
+                    disabled={busy}
+                    value={values[f.key] || f.options[0]}
+                    onChange={(e) => set(f.key, e.target.value)}
+                  >
+                    {f.options.map((s) => (
+                      <option key={s}>{s}</option>
+                    ))}
+                  </Select>
+                ) : f.type === "textarea" ? (
+                  <textarea
+                    id={"transition-" + f.key}
+                    required={f.required}
+                    disabled={busy}
+                    rows={2}
+                    value={values[f.key] || ""}
+                    onChange={(e) => set(f.key, e.target.value)}
+                  />
+                ) : (
+                  <input
+                    id={"transition-" + f.key}
+                    type={f.type || "text"}
+                    required={f.required}
+                    disabled={busy}
+                    value={values[f.key] || ""}
+                    min={f.type === "number" ? 0 : undefined}
+                    step={f.type === "number" ? "any" : undefined}
+                    onChange={(e) => set(f.key, e.target.value)}
+                  />
+                )}
+              </label>
+            ))}
+            {target !== "Proposal sent" && (
+              <label className="full">
+                <span>
+                  Note <em>*</em>
+                </span>
+                <textarea
+                  aria-label="Stage note"
+                  required
+                  rows={2}
+                  disabled={busy}
+                  placeholder="Add a note about this stage update"
+                  value={values.stageNote || ""}
+                  onChange={(e) => set("stageNote", e.target.value)}
+                />
+              </label>
+            )}
+          </div>
+          {target === "Proposal sent" && (
+            <ProposalUpload
+              opportunityId={r.id}
+              name={values.proposalDocumentName || ""}
+              disabled={busy}
+              pending={setUploadBusy}
+              change={(id, name) =>
+                setValues((v) => ({
+                  ...v,
+                  proposalDocumentId: id,
+                  proposalDocumentName: name,
+                }))
+              }
+            />
+          )}{" "}
+          {target === "Accepted" && !revisions.length && (
+            <p className="form-note">
+              Send a proposal revision before closing this opportunity.
+            </p>
+          )}
+          {!rule.terminal && (
+            <section className="followup-capture">
+              <div className="form-grid">
+                {!rule.requiresFollowUp && (
+                  <label className="full">
+                    <span>Does this need a follow-up?</span>
+                    <Select
+                      id="transition-followUpNeeded"
+                      value={
+                        rule.requiresFollowUp ? "Yes" : values.followUpNeeded
+                      }
+                      disabled={busy || rule.requiresFollowUp}
+                      onChange={(e) => set("followUpNeeded", e.target.value)}
+                    >
+                      <option>No</option>
+                      <option>Yes</option>
+                    </Select>
+                    {rule.requiresFollowUp && (
+                      <small className="form-note">
+                        A lead that was not connected needs a next contact
+                        attempt.
+                      </small>
+                    )}
+                  </label>
+                )}
+                {(rule.requiresFollowUp ||
+                  values.followUpNeeded === "Yes") && (
+                  <>
+                    <label>
+                      <span>
+                        Follow-up date & time <em>*</em>
+                      </span>
+                      <DateTimePicker
+                        label="Follow-up date & time"
+                        date={values.nextFollowUp || ""}
+                        time={values.followUpTime || ""}
+                        required
+                        disabled={busy}
+                        onChange={(date, time) =>
+                          setValues((v) => ({
+                            ...v,
+                            nextFollowUp: date,
+                            followUpTime: time,
+                          }))
+                        }
+                      />
+                    </label>
+                    <label>
+                      <span>
+                        Follow-up action <em>*</em>
+                      </span>
+                      <textarea
+                        id="transition-followUpAction"
+                        required
+                        rows={1}
+                        disabled={busy}
+                        placeholder="For example: call Priya to confirm the discovery meeting"
+                        value={values.followUpAction || ""}
+                        onChange={(e) => set("followUpAction", e.target.value)}
+                      />
+                    </label>
+                  </>
+                )}
+              </div>
+            </section>
+          )}
+          {error && (
+            <div className="error-banner" role="alert">
+              <AlertCircle size={18} />
+              <span>{error}</span>
+              {saveFailed && (
+                <button
+                  type="button"
+                  className="text-button"
+                  disabled={busy}
+                  onClick={() => void refreshRecord()}
+                >
+                  Refresh record
+                </button>
+              )}
+            </div>
+          )}
+          {hasTasks && (
+            <section className="current-task-choice">
+              <label className="task-close-question">
+                <span>
+                  Close open tasks? <em>*</em>
+                </span>
+                <Select
+                  aria-label="Close open tasks?"
+                  required
+                  value={closeOpenTasks}
+                  disabled={busy}
+                  onChange={(e) => {
+                    setCloseOpenTasks(e.target.value);
+                    if (e.target.value !== "Yes")
+                      setValues((v) => ({
+                        ...v,
+                        taskDisposition: "Keep",
+                        closedTaskIds: "[]",
+                      }));
+                  }}
+                >
+                  <option value="">Choose an answer</option>
+                  <option>No</option>
+                  <option>Yes</option>
+                </Select>
+              </label>
+              {closeOpenTasks === "Yes" && (
+                <>
+                  <h3>Choose tasks to close</h3>
+                  <div className="transition-task-table-wrap">
+                    <table className="records-table transition-task-table">
+                      <colgroup>
+                        <col style={{ width: 58 }} />
+                        <col />
+                        <col style={{ width: 112 }} />
+                      </colgroup>
+                      <thead>
+                        <tr>
+                          <th>Close</th>
+                          <th>Task</th>
+                          <th>Due</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {currentDue && (
+                          <tr>
+                            <td>
+                              <input
+                                type="checkbox"
+                                aria-label="Close current follow-up"
+                                checked={values.taskDisposition === "Close"}
+                                disabled={busy}
+                                onChange={(e) =>
+                                  set(
+                                    "taskDisposition",
+                                    e.target.checked ? "Close" : "Keep",
+                                  )
+                                }
+                              />
+                            </td>
+                            <td>{followUpAction(r)}</td>
+                            <td>{currentDue}</td>
+                          </tr>
+                        )}
+                        {linkedTasks.map((t) => (
+                          <tr key={t.id}>
+                            <td>
+                              <input
+                                type="checkbox"
+                                aria-label={"Close " + t.title}
+                                disabled={busy || !canEditActivities}
+                                checked={JSON.parse(
+                                  values.closedTaskIds || "[]",
+                                ).includes(t.id)}
+                                onChange={(e) => {
+                                  const ids: string[] = JSON.parse(
+                                    values.closedTaskIds || "[]",
+                                  );
+                                  set(
+                                    "closedTaskIds",
+                                    JSON.stringify(
+                                      e.target.checked
+                                        ? [...ids, t.id]
+                                        : ids.filter((id) => id !== t.id),
+                                    ),
+                                  );
+                                }}
+                              />
+                            </td>
+                            <td>{t.title}</td>
+                            <td>{t.data.dueDate}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <p className="form-note">Unchecked tasks remain open.</p>
+                </>
+              )}
+            </section>
+          )}
+          {currentDue && values.taskDisposition === "Keep" && (
+            <p className="form-note">
+              {rule.requiresFollowUp
+                ? "The follow-up stays open with the date, time and action shown above."
+                : "The existing follow-up stays open unchanged."}
+            </p>
+          )}
+        </div>
+        <div className="editor-footer">
+          <span />
+          <div>
+            <button
+              className="secondary"
+              type="button"
+              disabled={busy}
+              onClick={close}
+            >
+              Cancel
+            </button>
+            <button
+              className="primary"
+              type="submit"
+              disabled={busy || uploadBusy}
+            >
+              {busy ? "Saving…" : "Save update"}
+            </button>
+          </div>
+        </div>
+      </form>
+    </div>
+  );
 }
-

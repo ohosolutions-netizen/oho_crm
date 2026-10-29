@@ -1,6 +1,7 @@
 import {createHash} from 'node:crypto';
 export const sourceId=value=>String(value||'').replace(/^zcrm_/, '');
 export function leadId(id){const hex=createHash('sha256').update('oho:zoho-lead:'+sourceId(id)).digest('hex').slice(0,32);return hex.slice(0,8)+'-'+hex.slice(8,12)+'-5'+hex.slice(13,16)+'-a'+hex.slice(17,20)+'-'+hex.slice(20);}
+export function enquiryId(id){const hex=createHash('sha256').update('oho:zoho-enquiry:'+sourceId(id)).digest('hex').slice(0,32);return hex.slice(0,8)+'-'+hex.slice(8,12)+'-5'+hex.slice(13,16)+'-b'+hex.slice(17,20)+'-'+hex.slice(20);}
 export function mapLead(lead,ownerId,now){
  const id=sourceId(lead.id),title=[lead.First_Name,lead.Last_Name].filter(Boolean).join(' ').trim()||lead.Full_Name||lead.Email;
  if(!id||!/^\d+$/.test(id))throw Error('Invalid Zoho lead ID');if(!title)throw Error('Missing lead name');if(!(lead.Phone||lead.Mobile||'').trim())throw Error('Missing mandatory lead phone');if(!ownerId)throw Error('No active intake owner');

@@ -16,8 +16,9 @@ export default async function handler(req,res){
       const url=new URL(req.url,'https://'+req.headers.host),path=url.pathname;
       let body;if(!path.endsWith('/api/documents')&&!['GET','HEAD'].includes(req.method)){if(req.body)body=typeof req.body==='string'?req.body:JSON.stringify(req.body);else{let raw='';for await(const part of req){raw+=part;if(raw.length>2000000)throw new Error('Request too large.');}body=raw;}}
       let input;try{input=body?JSON.parse(body):null;}catch{throw Object.assign(new Error('Invalid request body.'),{status:400});}
-      const simple=path.endsWith('/api/identity')||path.endsWith('/api/crm')&&(req.method==='GET'&&url.searchParams.get('id')||req.method==='POST'&&input?.kind==='note'||req.method==='POST'&&input?.kind==='record'&&['create','edit'].includes(input.operation)&&['enquiries','contacts','activities','opportunities','projects'].includes(input.module));
-      let working;if(simple)try{working=await nativeWorkingState(input||{id:url.searchParams.get('id'),operation:'read'},path.endsWith('/api/identity'));}catch(e){if(e.status!==428)throw e;}
+      const bootstrap=path.endsWith('/api/crm')&&req.method==='GET'&&url.searchParams.get('mode')==='bootstrap';
+      const simple=bootstrap||path.endsWith('/api/identity')||path.endsWith('/api/crm')&&(req.method==='GET'&&url.searchParams.get('id')||req.method==='POST'&&input?.kind==='note'||req.method==='POST'&&input?.kind==='record'&&['create','edit'].includes(input.operation)&&['leadEnquiries','contacts','opportunities','projects'].includes(input.module));
+      let working;if(simple)try{working=await nativeWorkingState(input||{id:url.searchParams.get('id'),module:url.searchParams.get('recordModule'),operation:bootstrap?'bootstrap':'read'},bootstrap||path.endsWith('/api/identity'));}catch(e){if(e.status!==428)throw e;}
       if(working){c.db=memory(working.state);c.direct=true;c.nativeRegistry=working.registry;c.revision=0;}
       else{const commit=await latest();if(!commit)throw new Error('CRM migration has not completed.');const loaded=await loadDatabase(commit);c.db=loaded.db;c.revision=loaded.revision;await mergeNativeRecords(c.db,commit.CommittedAt,req.method==='POST');if(req.method==='POST')await recoverNativeLeases(c.db);}
 

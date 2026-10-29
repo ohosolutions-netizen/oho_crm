@@ -2,7 +2,7 @@ import {randomUUID} from 'node:crypto';
 import {rows,first,insert,update,query,quote} from '../client.mjs';
 import {project} from '../projections.mjs';
 import {encodeNativePayload,decodeNativePayload} from '../native-record-codec.mjs';
-import {leadId as mapLeadId,mapLead,sourceId,fetchFunctionIncremental} from './engine.mjs';
+import {leadId as mapLeadId,enquiryId as mapEnquiryId,mapLead,sourceId,fetchFunctionIncremental} from './engine.mjs';
 import {parseFunctionOutput} from './function-response.mjs';
 const prefix='zoho-sync:',empty=()=>({roles:[],profiles:[],users:[],records:[],audit:[],settings:[]});
 async function encode(value){const p=encodeNativePayload(value);for(let i=0;i<p.chunks.length;i+=100)await insert('BackendChunks',p.chunks.slice(i,i+100));return p.data;}
@@ -20,16 +20,17 @@ export async function runLeadSync(){
   const stateRow=await first('Settings','SettingKey='+quote(prefix+'state'));const state=stateRow?JSON.parse(stateRow.SettingValue):{checkpoint:process.env.ZOHO_SYNC_INITIAL_FROM};if(!Number.isFinite(Date.parse(state.checkpoint)))throw Error('Initial sync timestamp is not configured');
   const baseline=await first('Settings','SettingKey='+quote(prefix+'existing-ids'));if(!baseline)throw Error('Existing lead ID index is not initialised');const known=new Set(JSON.parse((await decode(baseline)).value));
   const now=new Date().toISOString();let quarantined=0,retried=0;
+  const terminal=status=>['Converted','Lead Lost','Junk Lead','Disqualified'].includes(status);
+  async function writeRecord(record,audit){const projected=project({...empty(),records:[record],audit:[audit]});const table=record.module==='leadEnquiries'?'Enquiries':'Leads',row=projected[table][0];row.DataJson=await encode({_nativeRecord:true,record,audit,references:Object.values(JSON.parse(record.data)).filter(v=>typeof v==='string'&&/^[0-9a-f-]{36}$/i.test(v))});await insert(table,[row]);try{const a=projected.AuditLog[0];a.DataJson=await encode(audit);await insert('AuditLog',[a]);}catch{console.warn('Lead sync audit projection pending');}}
+  async function duplicateLead(phone){const raw=String(phone||'').trim(),digits=raw.replace(/\D/g,''),tail=digits.length>=10?digits.slice(-10):digits,candidates=[raw,digits,'+'+digits,tail,'+91'+tail].filter(Boolean);const condition=[...new Set(candidates)].map(v=>'Phone='+quote(v)).join(' OR ');for(const row of await rows('Leads','('+condition+') AND IsDeleted=false','ORDER BY EntityUpdatedAt DESC')){const frame=await decode(row),record=frame?.record||frame;if(record?.module==='enquiries'&&String(JSON.parse(record.data).phone||'').replace(/\D/g,'').slice(-10)===tail)return record;}return null;}
   async function ingest(lead,allowQueue=true){
    const id=sourceId(lead.id);if(!/^\d+$/.test(id))throw Error('Source returned an invalid lead ID');
-   if(known.has(id)||await first('Leads','AppId='+quote(mapLeadId(id))))return 'skipped';
+   if(known.has(id)||await first('Leads','AppId='+quote(mapLeadId(id)))||await first('Enquiries','AppId='+quote(mapEnquiryId(id))))return 'skipped';
    const owner=users.find(u=>lead.Owner?.id&&sourceId(u.auth_id)===sourceId(lead.Owner.id))||users.find(u=>u.email&&lead.Owner?.email&&u.email.toLowerCase()===lead.Owner.email.toLowerCase())||users.find(u=>u.name?.toLowerCase()===lead.Owner?.name?.toLowerCase())||fallback;
    let record;try{record=mapLead(lead,owner.id,now);}catch(e){if(!allowQueue)return 'pending';await setting('pending:'+id,{lead,reason:e.message,queuedAt:now});quarantined++;return 'quarantined';}
-   const audit={id:'zoho-sync:'+id,actor_id:owner.id,action:'create',target:'record:'+record.id,details:JSON.stringify({module:'enquiries',source:'Zoho CRM scheduled intake',zohoCRMId:id}),created_at:now};
-   const projected=project({...empty(),records:[record],audit:[audit]});const row=projected.Leads[0];row.DataJson=await encode({_nativeRecord:true,record,audit,references:[]});
-   try{await insert('Leads',[row]);}catch(e){if(await first('Leads','AppId='+quote(record.id)))return 'skipped';throw e;}
-   // Record envelope retains audit for repair if the audit projection fails.
-   try{const a=projected.AuditLog[0];a.DataJson=await encode(audit);await insert('AuditLog',[a]);}catch{console.warn('Lead sync audit projection pending');}
+   const duplicate=await duplicateLead(record.data?JSON.parse(record.data).phone:'');
+   const createLead=!duplicate||terminal(JSON.parse(duplicate.data).status);if(createLead){const audit={id:'zoho-sync:'+id,actor_id:owner.id,action:'create',target:'record:'+record.id,details:JSON.stringify({module:'enquiries',source:'Zoho CRM scheduled intake',zohoCRMId:id}),created_at:now};try{await writeRecord(record,audit);}catch(e){if(await first('Leads','AppId='+quote(record.id)))return 'skipped';throw e;}}
+   if(duplicate){const leadId=createLead?record.id:duplicate.id,source=JSON.parse(record.data),enquiry={id:mapEnquiryId(id),module:'leadEnquiries',title:record.title+' enquiry',owner_id:owner.id,company_id:createLead?record.company_id:duplicate.company_id,data:JSON.stringify({enquiryId:leadId,phone:source.phone,email:source.email||'',source:source.source||'Other',enquiryAt:source.receivedDate,status:'Booked',notes:source.requirements||source.notes||'Repeated enquiry received',zohoCRMId:id,zohoCreatedTime:source.zohoCreatedTime||''}),created_at:record.created_at,updated_at:now};const audit={id:'zoho-enquiry:'+id,actor_id:owner.id,action:'enquiry',target:'record:'+leadId,details:JSON.stringify({module:'leadEnquiries',source:'Zoho CRM scheduled intake',zohoCRMId:id,enquiryId:enquiry.id,newLeadCreated:createLead}),created_at:now};try{await writeRecord(enquiry,audit);}catch(e){if(await first('Enquiries','AppId='+quote(enquiry.id)))return 'skipped';throw e;}}
    known.add(id);return 'imported';
   }
   async function callSource(args){

@@ -1,12 +1,209 @@
-import {noteText} from '../lib/note-text';
-import {ChevronRight,MessageSquare,CalendarDays} from 'lucide-react';
-import {stageColor} from '../lib/stage-colors';
-import type {CRMRecord} from '../lib/model';
-import type {StageEvent} from '../lib/stage-rules';
-const keys:Record<string,string>={latestNote:'Note',notes:'Notes',discoverySummary:'Discovery findings',stageNote:'Stage note',followUpAction:'Follow-up action',followUpCompletionNote:'Follow-up outcome',disqualificationReason:'Disqualification reason',lossReason:'Closure reason',negotiationPoints:'Negotiation points'};
-export default function RecordNotes({record,events}:{record:CRMRecord;events:StageEvent[]}){
- const entries=events.flatMap(e=>{const seen=new Set<string>();return Object.entries(keys).flatMap(([key,label])=>{const text=e.data[key]?.trim();if(!text||seen.has(text))return [];seen.add(text);return [{id:e.id+key,text,label:e.toStage==='Migrated note'?(e.data.noteTitle||'Migrated note'):label,stage:e.toStage,actor:e.toStage==='Migrated note'?'Created by '+e.actor:e.actor,date:e.createdAt}];});});
- for(const [key,label]of Object.entries({...keys,latestStageNote:'Latest stage note'})){const text=record.data[key]?.trim();if(text&&!entries.some(e=>e.text===text))entries.push({id:'current-'+key,text,label,stage:'',actor:'',date:record.updatedAt});}
- entries.sort((a,b)=>b.date.localeCompare(a.date));
- return <details className="detail-section story-panel" open><summary><ChevronRight size={16} className="story-chevron"/><span>Notes & follow-up timeline</span><span className="badge">{entries.length}</span></summary><div className="story-timeline">{entries.length?entries.map(e=><article key={e.id} className={e.label.includes('Follow-up')?'story-followup':'story-note'}><span className="story-marker">{e.label.includes('Follow-up')?<CalendarDays size={13}/>:<MessageSquare size={13}/>}</span><div className="story-entry"><div className="story-label"><strong>{e.label}</strong>{e.stage&&<span className={'stage-pill '+stageColor(e.stage)}>{e.stage}</span>}</div><time>{new Intl.DateTimeFormat('en-IN',{dateStyle:'medium',timeStyle:'short',timeZone:'Asia/Kolkata'}).format(new Date(e.date))} IST{e.actor?' · '+e.actor:''}</time><p>{noteText(e.text)}</p></div></article>):<p className="subtle">No notes or follow-up actions yet.</p>}</div></details>;
+import { CalendarDays, ChevronRight, FileClock } from "lucide-react";
+import type { ReactNode } from "react";
+import { noteText } from "../lib/note-text";
+import type { CRMRecord } from "../lib/model";
+import type { StageEvent } from "../lib/stage-rules";
+
+const Value = ({
+  children,
+  note = false,
+}: {
+  children: ReactNode;
+  note?: boolean;
+}) => (
+  <span
+    className={note ? "timeline-value timeline-note-value" : "timeline-value"}
+  >
+    {children}
+  </span>
+);
+const Note = ({ event }: { event: StageEvent }) => {
+  const text = event.data.stageNote?.trim();
+  if (
+    !text ||
+    text === "Record created" ||
+    text === "Activity recorded" ||
+    text === event.data.activityTitle
+  )
+    return null;
+  return (
+    <>
+      {" "}
+      with note <Value note>{noteText(text)}</Value>
+    </>
+  );
+};
+
+function Narrative({
+  event,
+  record,
+}: {
+  event: StageEvent;
+  record: CRMRecord;
+}) {
+  const actor = <Value>{event.actor}</Value>,
+    activity = event.data.activityType || event.fromStage,
+    title = event.data.activityTitle;
+  if (event.fromStage === "Record" && event.toStage === "Created")
+    return <>Record created by {actor}</>;
+  if (event.fromStage === "Record" && event.toStage === "Edited")
+    return (
+      <>
+        Record information edited by {actor}
+        <Note event={event} />
+      </>
+    );
+  if (event.fromStage === "Record" && event.toStage === "Deleted")
+    return <>Record deleted by {actor}</>;
+  if (event.toStage === "Migrated note")
+    return (
+      <>
+        Migrated note created by {actor}
+        <Note event={event} />
+      </>
+    );
+  if (event.fromStage === "Note")
+    return (
+      <>
+        Added a note by {actor}
+        <Note event={event} />
+      </>
+    );
+  if (event.fromStage === "Follow-up")
+    return (
+      <>
+        {event.toStage} a follow-up by {actor}
+        <Note event={event} />
+      </>
+    );
+  if (event.fromStage === "Enquiry")
+    return (
+      <>
+        Booked a new enquiry
+        {title && (
+          <>
+            {" "}named <Value>{title}</Value>
+          </>
+        )}{" "}
+        by {actor}
+        <Note event={event} />
+      </>
+    );
+  if (
+    event.data.activityType ||
+    ["Task", "Follow-up", "Online meeting", "Offline meeting"].includes(
+      activity,
+    )
+  ) {
+    const lower = activity.toLowerCase();
+    if (lower.includes("meeting"))
+      return (
+        <>
+          {event.toStage === "Completed"
+            ? "Logged a completed"
+            : "Scheduled an"}{" "}
+          <Value>{lower}</Value>
+          {title && (
+            <>
+              {" "}
+              named <Value>{title}</Value>
+            </>
+          )}{" "}
+          by {actor}
+          <Note event={event} />
+        </>
+      );
+    return (
+      <>
+        Added a <Value>{lower}</Value>
+        {title && (
+          <>
+            {" "}
+            named <Value>{title}</Value>
+          </>
+        )}{" "}
+        by {actor}
+        <Note event={event} />
+      </>
+    );
+  }
+  if (event.toStage === "Converted")
+    return (
+      <>
+        Lead converted by {actor}
+        <Note event={event} />
+      </>
+    );
+  if (event.fromStage && event.toStage)
+    return (
+      <>
+        {record.module === "opportunities" ? "Opportunity" : "Lead"} status
+        changed from <Value>{event.fromStage}</Value> to{" "}
+        <Value>{event.toStage}</Value> by {actor}
+        <Note event={event} />
+      </>
+    );
+  return (
+    <>
+      Record updated by {actor}
+      <Note event={event} />
+    </>
+  );
+}
+
+export default function RecordNotes({
+  record,
+  events,
+}: {
+  record: CRMRecord;
+  events: StageEvent[];
+}) {
+  const ordered = [...events].sort((a, b) =>
+    b.createdAt.localeCompare(a.createdAt),
+  );
+  const format = (value: string) =>
+    new Intl.DateTimeFormat("en-IN", {
+      dateStyle: "medium",
+      timeStyle: "short",
+      timeZone: "Asia/Kolkata",
+    }).format(new Date(value));
+  return (
+    <details className="detail-section story-panel narrative-timeline" open>
+      <summary>
+        <ChevronRight size={16} className="story-chevron" />
+        <span>Record timeline</span>
+        <span className="badge">{ordered.length}</span>
+      </summary>
+      <div className="story-timeline">
+        {ordered.length ? (
+          ordered.map((event) => (
+            <article
+              key={event.id}
+              className={
+                event.data.activityType || event.fromStage === "Follow-up"
+                  ? "story-followup"
+                  : "story-note"
+              }
+            >
+              <span className="story-marker">
+                {event.data.activityType || event.fromStage === "Follow-up" ? (
+                  <CalendarDays size={13} />
+                ) : (
+                  <FileClock size={13} />
+                )}
+              </span>
+              <div className="story-entry narrative-entry">
+                <time>{format(event.createdAt)} IST</time>
+                <p className="timeline-sentence">
+                  <Narrative event={event} record={record} />
+                </p>
+              </div>
+            </article>
+          ))
+        ) : (
+          <p className="subtle">No recorded activity yet.</p>
+        )}
+      </div>
+    </details>
+  );
 }
