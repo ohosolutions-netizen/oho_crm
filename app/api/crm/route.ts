@@ -693,6 +693,11 @@ export async function POST(req: Request) {
             changedIds.push(lead.id);
           }
         }
+        if (module === "integrationErrors" && old) {
+          if (data.status === "Resolved" && old.data.status !== "Resolved")
+            data.resolvedAt = new Date().toISOString();
+          if (data.status === "Open") data.resolvedAt = "";
+        }
         if (
           module === "opportunities" &&
           (old?.data.acceptedProposalId || "") !==

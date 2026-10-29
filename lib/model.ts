@@ -197,6 +197,21 @@ export const modules: Record<
       { key: "zohoCRMId", label: "Zoho CRM lead ID" },
     ],
   },
+  integrationErrors: {
+    name: "Integration Errors",
+    singular: "integration error",
+    description:
+      "Failures captured from connected services and scheduled integrations.",
+    fields: [
+      { key: "integration", label: "Integration" },
+      { key: "operation", label: "Operation" },
+      { key: "status", label: "Status", options: ["Open", "Resolved"] },
+      { key: "errorMessage", label: "Error message", type: "textarea" },
+      { key: "occurredAt", label: "Occurred at" },
+      { key: "technicalContext", label: "Technical context", type: "textarea" },
+      { key: "resolvedAt", label: "Resolved at" },
+    ],
+  },
   opportunities: {
     name: "Opportunities",
     singular: "opportunity",
@@ -393,6 +408,11 @@ export function hasPermission(
   action: Action,
 ) {
   if (module === "leadEnquiries") module = "enquiries";
+  if (module === "integrationErrors")
+    return (
+      ["view", "edit"].includes(action) &&
+      permissions.administration?.view === true
+    );
   return (
     permissions[module]?.view === true && permissions[module]?.[action] === true
   );

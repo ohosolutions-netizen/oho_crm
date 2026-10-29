@@ -152,6 +152,7 @@ const icons: Record<string, typeof Building2> = {
   contacts: Users,
   enquiries: Inbox,
   leadEnquiries: FileClock,
+  integrationErrors: AlertCircle,
   opportunities: TrendingUp,
   activities: CalendarDays,
   proposals: FileText,

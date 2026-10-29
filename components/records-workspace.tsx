@@ -26,6 +26,7 @@ import {
   ChevronRight,
   ArrowRight,
   FileClock,
+  AlertCircle,
 } from "lucide-react";
 import FollowUpCell from "./follow-up-cell";
 import Select from "./select";
@@ -43,6 +44,7 @@ const icons: Record<string, typeof Building2> = {
   contacts: Users,
   enquiries: Inbox,
   leadEnquiries: FileClock,
+  integrationErrors: AlertCircle,
   opportunities: TrendingUp,
   activities: CalendarDays,
   proposals: FileText,
@@ -140,6 +142,7 @@ export default function RecordsWorkspace(p: Props) {
   const key = p.module,
     m = modules[key],
     isLead = key === "enquiries",
+    isIntegrationError = key === "integrationErrors",
     pipeline = isLead || key === "opportunities",
     columns = isLead
       ? p.leadCriteria.view === "Archived / Converted"
@@ -616,8 +619,16 @@ export default function RecordsWorkspace(p: Props) {
               </colgroup>
               <thead>
                 <tr>
-                  <th>{key === "companies" ? "Company" : "Name"}</th>
-                  {key !== "companies" && <th>Company</th>}
+                  <th>
+                    {key === "companies"
+                      ? "Company"
+                      : isIntegrationError
+                        ? "Error"
+                        : "Name"}
+                  </th>
+                  {key !== "companies" && !isIntegrationError && (
+                    <th>Company</th>
+                  )}
                   <th>
                     {key === "contacts"
                       ? "Email"
@@ -629,7 +640,11 @@ export default function RecordsWorkspace(p: Props) {
                     <th>Value</th>
                   )}
                   {key === "contacts" && <th>Phone</th>}
-                  <th>Follow-up / next action</th>
+                  <th>
+                    {isIntegrationError
+                      ? "Occurred"
+                      : "Follow-up / next action"}
+                  </th>
                   <th>Owner</th>
                   <th />
                 </tr>
@@ -670,13 +685,17 @@ export default function RecordsWorkspace(p: Props) {
                         <span>
                           <strong title={r.title}>{r.title}</strong>
                           <small>
-                            {key === "companies"
-                              ? r.data.industry || "Company record"
-                              : r.data.latestStageNote ||
-                                r.data.products ||
-                                r.data.contactName ||
-                                r.data.type ||
-                                m.singular}
+                            {isIntegrationError
+                              ? [r.data.integration, r.data.operation]
+                                  .filter(Boolean)
+                                  .join(" · ")
+                              : key === "companies"
+                                ? r.data.industry || "Company record"
+                                : r.data.latestStageNote ||
+                                  r.data.products ||
+                                  r.data.contactName ||
+                                  r.data.type ||
+                                  m.singular}
                           </small>
                           {isLead && r.data.reEnquiryCount && (
                             <span className="new-enquiry-tag list-reenquiry-tag">
@@ -686,7 +705,7 @@ export default function RecordsWorkspace(p: Props) {
                         </span>
                       </button>
                     </td>
-                    {key !== "companies" && (
+                    {key !== "companies" && !isIntegrationError && (
                       <td title={company(r)}>{company(r)}</td>
                     )}
                     <td>
@@ -711,12 +730,16 @@ export default function RecordsWorkspace(p: Props) {
                     )}
                     {key === "contacts" && <td>{r.data.phone || "—"}</td>}
                     <td>
-                      <FollowUpCell
-                        record={r}
-                        today={p.today}
-                        canEdit={p.can(key, "edit")}
-                        plan={() => p.planFollowUp(r)}
-                      />
+                      {isIntegrationError ? (
+                        date(r.data.occurredAt)
+                      ) : (
+                        <FollowUpCell
+                          record={r}
+                          today={p.today}
+                          canEdit={p.can(key, "edit")}
+                          plan={() => p.planFollowUp(r)}
+                        />
+                      )}
                     </td>
                     <td>
                       <span className="owner-cell">

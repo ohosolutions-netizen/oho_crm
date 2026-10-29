@@ -1,7 +1,7 @@
 import {readFile} from 'node:fs/promises';
 import {rows,insert,update,quote} from './client.mjs';
 const schema=JSON.parse(await readFile(new URL('./schema.json',import.meta.url),'utf8'));
-const names={companies:'Companies',contacts:'Contacts',enquiries:'Leads',leadEnquiries:'Enquiries',opportunities:'Opportunities',activities:'Activities',proposals:'Proposals',invoices:'Invoices',projects:'Implementations'};
+const names={companies:'Companies',contacts:'Contacts',enquiries:'Leads',leadEnquiries:'Enquiries',integrationErrors:'IntegrationErrors',opportunities:'Opportunities',activities:'Activities',proposals:'Proposals',invoices:'Invoices',projects:'Implementations'};
 const aliases={companyId:'CompanyAppId',ownerId:'OwnerAppId',contactId:'ContactAppId',enquiryId:'LeadAppId',opportunityId:'OpportunityAppId',proposalId:'ProposalAppId',convertedOpportunityId:'ConvertedOpportunityAppId',gst:'TaxNumber',type:'ActivityType',time:'ScheduledTime',followUpAction:'FollowUpAction'};
 const upper=k=>aliases[k]||k[0].toUpperCase()+k.slice(1);
 function normalized(table,row){

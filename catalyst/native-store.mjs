@@ -3,7 +3,7 @@ import {repairAuditBatch} from './audit-repair.mjs';
 import {rows,insert,update,quote,query,first} from './client.mjs';
 import {entities} from './delta.mjs';import {project} from './projections.mjs';
 import {encodeNativePayload,decodeNativePayload} from './native-record-codec.mjs';
-export const nativeTables={companies:'Companies',contacts:'Contacts',enquiries:'Leads',leadEnquiries:'Enquiries',opportunities:'Opportunities',activities:'Activities',proposals:'Proposals',invoices:'Invoices',projects:'Implementations'};
+export const nativeTables={companies:'Companies',contacts:'Contacts',enquiries:'Leads',leadEnquiries:'Enquiries',integrationErrors:'IntegrationErrors',opportunities:'Opportunities',activities:'Activities',proposals:'Proposals',invoices:'Invoices',projects:'Implementations'};
 const empty=()=>Object.fromEntries(entities.map(t=>[t,[]]));const fail=(message,status=409)=>Object.assign(new Error(message),{status});
 async function payload(row){if(!row.DataJson)return null;const header=JSON.parse(row.DataJson);return decodeNativePayload(row.DataJson,header.bodyRef?await rows('BackendChunks','CommitAppId='+quote(header.bodyRef)):[]);}
 async function stored(value){const encoded=encodeNativePayload(value);for(let i=0;i<encoded.chunks.length;i+=100)await insert('BackendChunks',encoded.chunks.slice(i,i+100));return encoded.data;}
