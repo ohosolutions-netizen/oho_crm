@@ -757,9 +757,14 @@ export default function CRM() {
     if (!response.ok) throw new Error(body.error || "Unable to save.");
     if (
       body.changes &&
-      ["record", "transition", "followup", "convert", "note"].includes(
-        String(payload.kind),
-      )
+      [
+        "record",
+        "transition",
+        "followup",
+        "convert",
+        "note",
+        "voice-call",
+      ].includes(String(payload.kind))
     ) {
       const changes = body.changes,
         ids = new Set(changes.ids),
@@ -1901,6 +1906,23 @@ function Detail({
   completeFollowUp: () => void;
 }) {
   const [detailTab, setDetailTab] = useState("Tasks");
+  const [calling, setCalling] = useState(false);
+  const [callError, setCallError] = useState("");
+
+  async function callLead() {
+    setCalling(true);
+    setCallError("");
+    try {
+      await save({ kind: "voice-call", operation: "create", id: r.id });
+      setDetailTab("Timeline");
+    } catch (error) {
+      setCallError(
+        error instanceof Error ? error.message : "Unable to start the call.",
+      );
+    } finally {
+      setCalling(false);
+    }
+  }
 
   const Icon = icons[r.module];
   const linked = state.records.filter(
@@ -1992,6 +2014,22 @@ function Detail({
           </span>
           <h2 id="detail-title">{r.title}</h2>
           <Badge value={r.data.status || r.data.stage || "Active"} />
+          {r.module === "enquiries" && can("enquiries", "edit") && (
+            <button
+              type="button"
+              className="secondary voice-call-button"
+              disabled={calling || !r.data.phone}
+              onClick={callLead}
+              title={
+                r.data.phone
+                  ? "Start voice-agent call"
+                  : "Add a phone number first"
+              }
+            >
+              {calling ? <span className="spinner" /> : <Phone size={16} />}
+              {calling ? "Calling…" : "Call"}
+            </button>
+          )}
           {r.module === "enquiries" && bookedEnquiries.length > 0 && (
             <span className="new-enquiry-tag">
               #NewEnquiry · {bookedEnquiries.length}
@@ -2004,6 +2042,7 @@ function Detail({
                 r.data.industry ||
                 `${modules[r.module].singular} record`}
           </p>
+          {callError && <p className="voice-call-error">{callError}</p>}
         </div>
         {["enquiries", "opportunities"].includes(r.module) && (
           <StageJourney

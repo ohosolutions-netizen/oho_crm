@@ -42,6 +42,10 @@ import {
 } from "../../../lib/stage-service";
 import { importZohoLeads } from "../../../lib/zoho-import-service";
 import { followUpErrors, validDate } from "../../../lib/stage-rules";
+import {
+  receiveVoiceCallWebhook,
+  startVoiceCall,
+} from "../../../lib/sarvam-call";
 export const dynamic = "force-dynamic";
 export async function GET(req?: Request) {
   try {
@@ -428,6 +432,12 @@ export async function POST(req: Request) {
     if (kind === "followup") {
       if (operation !== "edit") throw new APIError("Unknown follow-up action.");
       return await updateFollowUp(c, b);
+    }
+    if (kind === "voice-call") {
+      if (operation !== "create") throw new APIError("Unknown call action.");
+      return Response.json(await startVoiceCall(c, b, req.url), {
+        headers: { "Cache-Control": "no-store" },
+      });
     }
     const id =
       operation === "create"
@@ -1129,6 +1139,14 @@ export async function POST(req: Request) {
     );
   } catch (e) {
     return errorResponse(e);
+  }
+}
+
+export async function SARVAM_WEBHOOK(req: Request) {
+  try {
+    return await receiveVoiceCallWebhook(req);
+  } catch (error) {
+    return errorResponse(error);
   }
 }
 
