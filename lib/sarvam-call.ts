@@ -10,6 +10,8 @@ import {
 
 const endpoint =
   "https://apps.sarvam.ai/api/outbounds/v1/orgs/01a1881f-3396-7077-a2ef-fbefc5fdce27/workspaces/01a1881f-339f-734b-b797-02f6a88df829/outbounds";
+const deploymentsEndpoint =
+  "https://apps.sarvam.ai/api/app-authoring/v1/orgs/01a1881f-3396-7077-a2ef-fbefc5fdce27/workspaces/01a1881f-339f-734b-b797-02f6a88df829/deployments?limit=100";
 
 function apiKey() {
   const value = process.env.SARVAM_API_KEY?.trim();
@@ -55,6 +57,29 @@ function findText(value: unknown, keys: string[]): string {
     if (found) return found;
   }
   return "";
+}
+
+async function verifyWorkspaceAccess(key: string) {
+  const response = await fetch(deploymentsEndpoint, {
+    headers: { "X-API-Key": key },
+  });
+  if (response.ok) return;
+  const text = await response.text();
+  let detail = "";
+  try {
+    detail = findText(JSON.parse(text), ["message", "error", "detail"]);
+  } catch {
+    detail = text;
+  }
+  if (response.status === 401 || response.status === 403)
+    throw new APIError(
+      `Sarvam rejected this key for the configured Voice Agents workspace (${response.status}).${detail ? ` ${detail}` : ""}`,
+      502,
+    );
+  throw new APIError(
+    `Unable to verify the Sarvam workspace (${response.status}).${detail ? ` ${detail}` : ""}`,
+    502,
+  );
 }
 
 async function recordCallNote(
@@ -104,6 +129,7 @@ export async function startVoiceCall(
     throw new APIError("Lead unavailable.", 404);
   permit(c, "enquiries", "edit");
   const key = apiKey();
+  await verifyWorkspaceAccess(key);
   const url = new URL(requestUrl);
   url.pathname = url.pathname.replace(/\/api\/crm$/, "/api/sarvam/webhook");
   url.search = new URLSearchParams({
