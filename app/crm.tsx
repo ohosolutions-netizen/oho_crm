@@ -2359,6 +2359,20 @@ function RecordEditor({
   const item = e.item;
   const record =
     e.kind === "record" ? (item as CRMRecord | undefined) : undefined;
+  const isNewLead = e.kind === "record" && e.module === "enquiries" && !record;
+  const newLeadDeferredFields = new Set([
+    "status",
+    "notInterestedReason",
+    "products",
+    "discoveryDate",
+    "discoveryTime",
+    "discoveryMode",
+    "discoveryLocation",
+    "nextFollowUp",
+    "followUpTime",
+    "followUpAction",
+    "notes",
+  ]);
 
   const initial: Record<string, string> =
     e.kind === "record"
@@ -2367,8 +2381,12 @@ function RecordEditor({
           companyId: record?.companyId || "",
           ownerId: record?.ownerId || state.me.id,
           ...record?.data,
-          ...(e.module === "enquiries" && !record
-            ? { receivedDate: indiaToday(), receivedTime: indiaTime() }
+          ...(isNewLead
+            ? {
+                receivedDate: indiaToday(),
+                receivedTime: indiaTime(),
+                status: "New Lead",
+              }
             : {}),
           ...e.defaults,
         }
@@ -2457,7 +2475,13 @@ function RecordEditor({
         const data = Object.fromEntries(
           modules[e.module!].fields.map((f) => [
             f.key,
-            values[f.key] ?? f.options?.[0] ?? (f.key === "version" ? "1" : ""),
+            isNewLead && newLeadDeferredFields.has(f.key)
+              ? f.key === "status"
+                ? "New Lead"
+                : ""
+              : (values[f.key] ??
+                f.options?.[0] ??
+                (f.key === "version" ? "1" : "")),
           ]),
         );
         Object.assign(payload, {
@@ -2734,6 +2758,7 @@ function RecordEditor({
                       f.type !== "time" &&
                       f.key !== "contactDate" &&
                       !(e.module === "enquiries" && f.key === "contactId") &&
+                      !(isNewLead && newLeadDeferredFields.has(f.key)) &&
                       f.key !== "acceptedProposalId" &&
                       !f.key.startsWith("zohoCRM"),
                   )
