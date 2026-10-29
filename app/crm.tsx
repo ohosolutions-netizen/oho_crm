@@ -2155,6 +2155,7 @@ function Detail({
                         "nextFollowUp",
                         "followUpAction",
                         "followUpTime",
+                        "importedAt",
                       ].includes(f.key),
                   )
                   .map((f) => {
@@ -2759,6 +2760,7 @@ function RecordEditor({
                       f.key !== "contactDate" &&
                       !(e.module === "enquiries" && f.key === "contactId") &&
                       !(isNewLead && newLeadDeferredFields.has(f.key)) &&
+                      f.key !== "importedAt" &&
                       f.key !== "acceptedProposalId" &&
                       !f.key.startsWith("zohoCRM"),
                   )
