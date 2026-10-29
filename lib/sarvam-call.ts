@@ -140,11 +140,23 @@ export async function startVoiceCall(
       metadata: { lead_id: leadId, actor_id: c.me.id },
     },
   };
-  const response = await fetch(endpoint, {
+  const requestBody = JSON.stringify(payload);
+  let response = await fetch(endpoint, {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-API-Key": key },
-    body: JSON.stringify(payload),
+    body: requestBody,
   });
+  if (response.status === 401)
+    response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-API-Key": key,
+        "api-subscription-key": key,
+        Authorization: `Bearer ${key}`,
+      },
+      body: requestBody,
+    });
   const text = await response.text();
   let reply: Record<string, unknown> = {};
   try {
@@ -155,7 +167,7 @@ export async function startVoiceCall(
   if (!response.ok)
     throw new APIError(
       findText(reply, ["message", "error", "detail"]) ||
-        "Sarvam could not start the call.",
+        `Sarvam could not start the call (${response.status}).`,
       502,
     );
   const callId = findText(reply, ["id", "call_id", "outbound_id"]);
