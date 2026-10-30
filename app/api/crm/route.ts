@@ -1,6 +1,7 @@
 import {
   recordPage,
   dashboardSQL,
+  homeSQL,
   timingSQL,
 } from "../../../lib/workspace-query";
 import { stageTiming } from "../../../lib/stage-timing";
@@ -112,6 +113,19 @@ export async function GET(req?: Request) {
         await dashboardSQL(
           c,
           params.get("from") || today.slice(0, 7) + "-01",
+          params.get("to") || today,
+        ),
+        { headers: { "Cache-Control": "no-store" } },
+      );
+    }
+    if (mode === "home") {
+      const today = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "Asia/Kolkata",
+      }).format(new Date());
+      return Response.json(
+        await homeSQL(
+          c,
+          params.get("from") || today,
           params.get("to") || today,
         ),
         { headers: { "Cache-Control": "no-store" } },

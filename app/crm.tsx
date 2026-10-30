@@ -6,6 +6,7 @@ import { useEffect, useState, useRef, useMemo, type FormEvent } from "react";
 
 import {
   LayoutDashboard,
+  House,
   Building2,
   Users,
   Inbox,
@@ -72,6 +73,7 @@ import {
 import OverviewDashboard, {
   type DashboardData,
 } from "../components/overview-dashboard";
+import UserHome from "../components/user-home";
 import RecordLookup from "../components/record-lookup";
 import RecordsWorkspace from "../components/records-workspace";
 
@@ -219,15 +221,16 @@ function Badge({ value }: { value: string }) {
 
 export default function CRM() {
   const initialView = () => {
-    if (typeof window === "undefined") return "dashboard";
+    if (typeof window === "undefined") return "home";
     const value =
-      new URLSearchParams(window.location.search).get("view") || "dashboard";
-    return value === "dashboard" ||
+      new URLSearchParams(window.location.search).get("view") || "home";
+    return value === "home" ||
+      value === "dashboard" ||
       value === "followups" ||
       value === "settings" ||
       !!modules[value]
       ? value
-      : "dashboard";
+      : "home";
   };
 
   const [showLeadImport, setShowLeadImport] = useState(false);
@@ -467,7 +470,7 @@ export default function CRM() {
     if (typeof window !== "undefined") {
       const url = new URL(window.location.href);
       url.search = "";
-      if (v !== "dashboard") url.searchParams.set("view", v);
+      if (v !== "home") url.searchParams.set("view", v);
       window.history.replaceState(null, "", url);
     }
     const nextCriteria =
@@ -576,7 +579,7 @@ export default function CRM() {
   async function openRecord(r: CRMRecord) {
     if (typeof window !== "undefined") {
       const url = new URL(window.location.href);
-      if (view !== "dashboard") url.searchParams.set("view", view);
+      if (view !== "home") url.searchParams.set("view", view);
       url.searchParams.set("module", r.module);
       url.searchParams.set("record", r.id);
       window.history.replaceState(null, "", url);
@@ -634,6 +637,23 @@ export default function CRM() {
       navigate(r.module);
       void openRecord(r);
     }
+  }
+  function openHomeTask(r: CRMRecord) {
+    const id =
+      r.module === "activities"
+        ? r.data.enquiryId || r.data.opportunityId
+        : null;
+    if (!id) {
+      void openRecord(r);
+      return;
+    }
+    const target = state?.records.find((x) => x.id === id) || {
+      ...r,
+      id,
+      module: r.data.enquiryId ? "enquiries" : "opportunities",
+      data: {},
+    };
+    void openRecord(target);
   }
   function dashboardNavigate(module: string, status?: string) {
     navigate(module);
@@ -1065,6 +1085,13 @@ export default function CRM() {
 
           <nav>
             <button
+              className={view === "home" ? "active" : ""}
+              onClick={() => navigate("home")}
+            >
+              <House size={18} />
+              Home
+            </button>
+            <button
               className={view === "dashboard" ? "active" : ""}
               onClick={() => navigate("dashboard")}
             >
@@ -1157,6 +1184,7 @@ export default function CRM() {
                 (
                   {
                     dashboard: "Overview",
+                    home: "Home",
                     followups: "Follow-ups",
                     settings: "Administration",
                   } as Record<string, string>
@@ -1191,14 +1219,16 @@ export default function CRM() {
             <div>
               <div className="eyebrow">
                 OHO SOLUTIONS /{" "}
-                {view === "dashboard"
+                {view === "home" || view === "dashboard"
                   ? "YOUR BUSINESS AT A GLANCE"
                   : view === "settings"
                     ? "WORKSPACE CONTROLS"
                     : "CUSTOMER OPERATIONS"}
               </div>
               <h1>
-                {view === "dashboard"
+                {view === "home"
+                  ? "Good to see you, " + state.me.name.split(/[ @]/)[0] + "."
+                  : view === "dashboard"
                   ? "Good to see you, " + state.me.name.split(/[ @]/)[0] + "."
                   : modules[view]?.name ||
                     (
@@ -1214,6 +1244,7 @@ export default function CRM() {
                     {
                       dashboard:
                         "Every relationship, every opportunity, every next step.",
+                      home: "Your tasks and newly assigned records, ready to work.",
                       followups:
                         "Your due dates and next actions, together in one place.",
                       settings:
@@ -1233,7 +1264,7 @@ export default function CRM() {
                   Import Zoho CRM CSV
                 </button>
               )}
-              {view === "dashboard" ? (
+              {view === "home" || view === "dashboard" ? (
                 <span className="date-chip">
                   <CalendarDays size={16} />
                   {date(today)}
@@ -1246,6 +1277,20 @@ export default function CRM() {
               ) : null}
             </div>
           </div>
+
+          {view === "home" && (
+            <UserHome
+              version={version}
+              merge={mergeRecords}
+              open={openHomeTask}
+              owner={owner}
+              company={company}
+              can={can}
+              complete={(r) =>
+                setFollowUpTarget({ record: r, mode: "complete" })
+              }
+            />
+          )}
 
           {view === "dashboard" && (
             <OverviewDashboard

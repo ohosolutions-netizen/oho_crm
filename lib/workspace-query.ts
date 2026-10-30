@@ -456,3 +456,44 @@ export async function dashboardSQL(c: Context, from: string, to: string) {
     timing: await timingSQL(c, from, to),
   };
 }
+
+export async function homeSQL(c: Context, from: string, to: string) {
+  if (!validDate(from) || !validDate(to) || from > to)
+    throw new APIError("Choose a valid follow-up date range.");
+  const scope = visibility(c),
+    due = dueSQL(),
+    today = indiaToday(),
+    owned = `${scope.where} AND r.owner_id=?`,
+    ownedArgs = [...scope.args, c.me.id],
+    taskIds = await rows<{ id: string }>(
+      `SELECT r.id FROM records r WHERE ${owned} AND ${due}!='' AND ${due}>=? AND ${due}<=? ORDER BY ${due} ASC,COALESCE(json_extract(r.data,'$.followUpTime'),json_extract(r.data,'$.dueTime'),'') ASC,r.id ASC LIMIT 30`,
+      ...ownedArgs,
+      from,
+      to,
+    ),
+    leadIds = await rows<{ id: string }>(
+      `SELECT r.id FROM records r WHERE ${owned} AND r.module='enquiries' AND julianday(r.created_at) BETWEEN julianday(?) AND julianday(?) ORDER BY r.created_at DESC,r.id ASC LIMIT 12`,
+      ...ownedArgs,
+      today + "T00:00:00+05:30",
+      today + "T23:59:59.999+05:30",
+    ),
+    opportunityIds = await rows<{ id: string }>(
+      `SELECT r.id FROM records r WHERE ${owned} AND r.module='opportunities' AND julianday(r.created_at) BETWEEN julianday(?) AND julianday(?) ORDER BY r.created_at DESC,r.id ASC LIMIT 12`,
+      ...ownedArgs,
+      today + "T00:00:00+05:30",
+      today + "T23:59:59.999+05:30",
+    ),
+    ids = [...new Set([...taskIds, ...leadIds, ...opportunityIds].map((r) => r.id))],
+    records = ids.length
+      ? await allRecords("id IN (" + ids.map(() => "?").join(",") + ")", ids)
+      : [],
+    byId = new Map(records.map((r) => [r.id, r]));
+  return {
+    today,
+    taskIds: taskIds.map((r) => r.id),
+    leadIds: leadIds.map((r) => r.id),
+    opportunityIds: opportunityIds.map((r) => r.id),
+    records: ids.map((id) => byId.get(id)!).filter(Boolean),
+    relatedRecords: await relatedCompanies(c, records),
+  };
+}
