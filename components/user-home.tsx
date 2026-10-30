@@ -93,9 +93,10 @@ export default function UserHome(props: Props) {
   if (!data)
     return <div className="error-banner" role="alert">{error || "Unable to load your home page."}</div>;
 
-  const recordList = (records: CRMRecord[], empty: string) =>
+  const recordList = (records: CRMRecord[], empty: string, label: string) =>
     records.length ? (
       <div className="home-record-list">
+        <div className="home-list-head"><span>{label} / company</span><span>Stage</span><span /></div>
         {records.map((record) => (
           <button key={record.id} className="home-record-row" onClick={() => props.open(record)}>
             <span className="home-record-main"><strong>{record.title}</strong><small>{record.companyId ? props.company(record.companyId) : record.data.companyName || "Company not linked"}</small></span>
@@ -121,6 +122,7 @@ export default function UserHome(props: Props) {
         </div>
         {busy ? <div className="record-loading compact-loading"><span className="spinner" />Refreshing tasks...</div> : tasks.length ? (
           <div className="home-task-list">
+            <div className="home-task-head"><span>Due</span><span>Task / record</span><span>Status</span><span>Action</span></div>
             {tasks.map((record) => (
               <div className="home-task-row" key={record.id}>
                 <button className="home-task-open" onClick={() => props.open(record)}>
@@ -136,8 +138,8 @@ export default function UserHome(props: Props) {
       </section>
 
       <div className="home-created-grid">
-        <section className="card home-created-card"><div className="card-heading home-card-heading"><div><h2><Inbox size={19} /> Leads added or assigned today</h2><p>{leads.length} assigned to you</p></div></div>{recordList(leads, "No leads were added or assigned to you today.")}</section>
-        <section className="card home-created-card"><div className="card-heading home-card-heading"><div><h2><TrendingUp size={19} /> New opportunities today</h2><p>{opportunities.length} assigned to you</p></div></div>{recordList(opportunities, "No new opportunities assigned to you today.")}</section>
+        <section className="card home-created-card"><div className="card-heading home-card-heading"><div><h2><Inbox size={19} /> Leads added or assigned today</h2><p>{leads.length} assigned to you</p></div></div>{recordList(leads, "No leads were added or assigned to you today.", "Lead")}</section>
+        <section className="card home-created-card"><div className="card-heading home-card-heading"><div><h2><TrendingUp size={19} /> New opportunities today</h2><p>{opportunities.length} assigned to you</p></div></div>{recordList(opportunities, "No new opportunities assigned to you today.", "Opportunity")}</section>
       </div>
       <p className="home-timezone"><CalendarDays size={14} /> Dates and times use India Standard Time</p>
     </div>
