@@ -472,8 +472,12 @@ export async function homeSQL(c: Context, from: string, to: string) {
       to,
     ),
     leadIds = await rows<{ id: string }>(
-      `SELECT r.id FROM records r WHERE ${owned} AND r.module='enquiries' AND julianday(r.created_at) BETWEEN julianday(?) AND julianday(?) ORDER BY r.created_at DESC,r.id ASC LIMIT 12`,
+      `SELECT r.id FROM records r WHERE ${owned} AND r.module='enquiries' AND (julianday(r.created_at) BETWEEN julianday(?) AND julianday(?) OR EXISTS (SELECT 1 FROM audit a WHERE a.action='edit' AND a.target='record:'||r.id AND json_extract(a.details,'$.after.ownerId')=? AND COALESCE(json_extract(a.details,'$.before.ownerId'),'')<>? AND julianday(a.created_at) BETWEEN julianday(?) AND julianday(?))) ORDER BY r.updated_at DESC,r.id ASC LIMIT 12`,
       ...ownedArgs,
+      today + "T00:00:00+05:30",
+      today + "T23:59:59.999+05:30",
+      c.me.id,
+      c.me.id,
       today + "T00:00:00+05:30",
       today + "T23:59:59.999+05:30",
     ),

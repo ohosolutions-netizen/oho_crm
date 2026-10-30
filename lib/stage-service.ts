@@ -25,6 +25,7 @@ import {
   followUpAction,
   followUpTime,
   dateTimeKey,
+  modules,
   type CRMRecord,
 } from "./model";
 import {
@@ -666,11 +667,45 @@ export async function visibleHistory(
       generic = ["create", "edit", "delete"].includes(a.action);
     const beforeData = d.before?.data || {},
       afterData = d.after?.data || {},
-      changedFields = generic
+      module = d.after?.module || d.before?.module || "",
+      fieldLabels = new Map(
+        (modules[module]?.fields || []).map((field) => [field.key, field.label]),
+      ),
+      completeSnapshot = d.after?.snapshotVersion === 2,
+      changedDataKeys = completeSnapshot
         ? [...new Set([...Object.keys(beforeData), ...Object.keys(afterData)])]
-            .filter((key) => beforeData[key] !== afterData[key])
-            .join(", ")
-        : "";
+        : Object.keys(afterData),
+      changes = generic && a.action === "edit"
+        ? [
+            ...(d.before?.title !== d.after?.title
+              ? [{ field: "Record name", from: d.before?.title || "Not set", to: d.after?.title || "Not set" }]
+              : []),
+            ...((d.before?.ownerId || "") !== (d.after?.ownerId || "")
+              ? [{
+                  field: "Owner",
+                  from:
+                    d.before?.ownerName ||
+                    c.members.find((member) => member.id === d.before?.ownerId)?.name ||
+                    "Not set",
+                  to:
+                    d.after?.ownerName ||
+                    c.members.find((member) => member.id === d.after?.ownerId)?.name ||
+                    "Not set",
+                }]
+              : []),
+            ...((d.before?.companyId || "") !== (d.after?.companyId || "")
+              ? [{ field: "Company", from: d.before?.companyName || "Not set", to: d.after?.companyName || "Not set" }]
+              : []),
+            ...changedDataKeys
+              .filter((key) => beforeData[key] !== afterData[key])
+              .map((key) => ({
+                field: fieldLabels.get(key) || key,
+                from: beforeData[key] || "Not set",
+                to: afterData[key] || "Not set",
+              })),
+          ].filter((change) => change.from !== change.to)
+        : [],
+      changedFields = changes.map((change) => change.field).join(", ");
     return [
       {
         id: a.id,
@@ -722,6 +757,7 @@ export async function visibleHistory(
                       ? `Updated: ${changedFields}`
                       : "Record information updated",
               changedFields,
+              fieldChanges: JSON.stringify(changes),
             }
           : enquiry
             ? {

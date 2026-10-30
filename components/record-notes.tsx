@@ -47,12 +47,23 @@ function Narrative({
   if (event.fromStage === "Record" && event.toStage === "Created")
     return <>Record created by {actor}</>;
   if (event.fromStage === "Record" && event.toStage === "Edited")
-    return (
-      <>
-        Record information edited by {actor}
-        <Note event={event} />
-      </>
-    );
+    {
+      let changes: { field: string; from: string; to: string }[] = [];
+      try {
+        changes = JSON.parse(event.data.fieldChanges || "[]");
+      } catch {}
+      return changes.length ? (
+        <>
+          {changes.map((change, index) => (
+            <span className="timeline-change" key={`${change.field}-${index}`}>
+              <Value>{change.field}</Value> changed from <Value>{change.from}</Value> to <Value>{change.to}</Value>{index === changes.length - 1 ? "" : "; "}
+            </span>
+          ))}{" "}by {actor}
+        </>
+      ) : (
+        <>Record information edited by {actor}<Note event={event} /></>
+      );
+    }
   if (event.fromStage === "Record" && event.toStage === "Deleted")
     return <>Record deleted by {actor}</>;
   if (event.toStage === "Migrated note")

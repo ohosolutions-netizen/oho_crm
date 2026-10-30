@@ -460,6 +460,7 @@ export async function POST(req: Request) {
     const queries: D1PreparedStatement[] = [];
     const changedIds = [id];
     let recordBefore: unknown = null;
+    let recordAfter: unknown = null;
     if (kind === "record") {
       let module = string(b.module, "module", true);
       if (!modules[module]) throw new APIError("Unknown module.");
@@ -481,7 +482,18 @@ export async function POST(req: Request) {
         detectingDuplicate ? [] : [...linkedIds, id, id],
       );
       const old = existing.find((r) => r.id === id);
-      recordBefore = old || null;
+      recordBefore = old
+        ? {
+            ...old,
+            ownerName:
+              c.members.find((member) => member.id === old.ownerId)?.name ||
+              "Team member",
+            companyName:
+              existing.find((record) => record.id === old.companyId)?.title ||
+              old.data.companyName ||
+              "",
+          }
+        : null;
       if (
         operation !== "create" &&
         (!old || old.module !== module || !canSee(c, old))
@@ -877,6 +889,22 @@ export async function POST(req: Request) {
             changedIds.push(relatedEnquiryId);
           }
         }
+        recordAfter = {
+          snapshotVersion: 2,
+          id,
+          module,
+          title,
+          ownerId,
+          ownerName: owner.name,
+          companyId,
+          companyName:
+            existing.find((record) => record.id === companyId)?.title ||
+            data.companyName ||
+            "",
+          data,
+          createdAt: old?.createdAt || now,
+          updatedAt: now,
+        };
         if (operation === "create")
           queries.push(
             database()
@@ -1138,7 +1166,7 @@ export async function POST(req: Request) {
               : kind === "profile"
                 ? c.profiles.find((p) => p.id === id) || null
                 : c.members.find((u) => u.id === id) || null,
-        after: b,
+        after: kind === "record" ? recordAfter : b,
       }),
     );
     await database().batch(queries);

@@ -136,7 +136,7 @@ export default function UserHome(props: Props) {
       </section>
 
       <div className="home-created-grid">
-        <section className="card home-created-card"><div className="card-heading home-card-heading"><div><h2><Inbox size={19} /> New leads today</h2><p>{leads.length} assigned to you</p></div></div>{recordList(leads, "No new leads assigned to you today.")}</section>
+        <section className="card home-created-card"><div className="card-heading home-card-heading"><div><h2><Inbox size={19} /> Leads added or assigned today</h2><p>{leads.length} assigned to you</p></div></div>{recordList(leads, "No leads were added or assigned to you today.")}</section>
         <section className="card home-created-card"><div className="card-heading home-card-heading"><div><h2><TrendingUp size={19} /> New opportunities today</h2><p>{opportunities.length} assigned to you</p></div></div>{recordList(opportunities, "No new opportunities assigned to you today.")}</section>
       </div>
       <p className="home-timezone"><CalendarDays size={14} /> Dates and times use India Standard Time</p>
