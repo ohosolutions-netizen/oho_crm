@@ -19,6 +19,8 @@ export type HomeData = {
   taskIds: string[];
   leadIds: string[];
   opportunityIds: string[];
+  openLeadIds: string[];
+  openOpportunityIds: string[];
   records: CRMRecord[];
   relatedRecords: CRMRecord[];
 };
@@ -86,7 +88,9 @@ export default function UserHome(props: Props) {
     ),
     tasks = (data?.taskIds || []).map((id) => byId.get(id)!).filter(Boolean),
     leads = (data?.leadIds || []).map((id) => byId.get(id)!).filter(Boolean),
-    opportunities = (data?.opportunityIds || []).map((id) => byId.get(id)!).filter(Boolean);
+    opportunities = (data?.opportunityIds || []).map((id) => byId.get(id)!).filter(Boolean),
+    openLeads = (data?.openLeadIds || []).map((id) => byId.get(id)!).filter(Boolean),
+    openOpportunities = (data?.openOpportunityIds || []).map((id) => byId.get(id)!).filter(Boolean);
 
   if (!data && busy)
     return <div className="record-loading" role="status"><span className="spinner" />Loading your work...</div>;
@@ -140,6 +144,10 @@ export default function UserHome(props: Props) {
       <div className="home-created-grid">
         <section className="card home-created-card"><div className="card-heading home-card-heading"><div><h2><Inbox size={19} /> Leads added or assigned today</h2><p>{leads.length} assigned to you</p></div></div>{recordList(leads, "No leads were added or assigned to you today.", "Lead")}</section>
         <section className="card home-created-card"><div className="card-heading home-card-heading"><div><h2><TrendingUp size={19} /> New opportunities today</h2><p>{opportunities.length} assigned to you</p></div></div>{recordList(opportunities, "No new opportunities assigned to you today.", "Opportunity")}</section>
+      </div>
+      <div className="home-created-grid home-open-grid">
+        <section className="card home-created-card"><div className="card-heading home-card-heading"><div><h2><Inbox size={19} /> Open leads</h2><p>{openLeads.length} active and assigned to you</p></div></div>{recordList(openLeads, "You have no open leads.", "Lead")}</section>
+        <section className="card home-created-card"><div className="card-heading home-card-heading"><div><h2><TrendingUp size={19} /> Open opportunities</h2><p>{openOpportunities.length} active and assigned to you</p></div></div>{recordList(openOpportunities, "You have no open opportunities.", "Opportunity")}</section>
       </div>
       <p className="home-timezone"><CalendarDays size={14} /> Dates and times use India Standard Time</p>
     </div>

@@ -487,7 +487,15 @@ export async function homeSQL(c: Context, from: string, to: string) {
       today + "T00:00:00+05:30",
       today + "T23:59:59.999+05:30",
     ),
-    ids = [...new Set([...taskIds, ...leadIds, ...opportunityIds].map((r) => r.id))],
+    openLeadIds = await rows<{ id: string }>(
+      `SELECT r.id FROM records r WHERE ${owned} AND r.module='enquiries' AND ${stageSQL()} NOT IN ('Converted','Lead Lost','Junk Lead','Disqualified','Not qualified') AND ${j("convertedOpportunityId")}='' ORDER BY r.updated_at DESC,r.id ASC LIMIT 20`,
+      ...ownedArgs,
+    ),
+    openOpportunityIds = await rows<{ id: string }>(
+      `SELECT r.id FROM records r WHERE ${owned} AND r.module='opportunities' AND ${stageSQL()} NOT IN ('Accepted','Closed lost') ORDER BY r.updated_at DESC,r.id ASC LIMIT 20`,
+      ...ownedArgs,
+    ),
+    ids = [...new Set([...taskIds, ...leadIds, ...opportunityIds, ...openLeadIds, ...openOpportunityIds].map((r) => r.id))],
     records = ids.length
       ? await allRecords("id IN (" + ids.map(() => "?").join(",") + ")", ids)
       : [],
@@ -497,6 +505,8 @@ export async function homeSQL(c: Context, from: string, to: string) {
     taskIds: taskIds.map((r) => r.id),
     leadIds: leadIds.map((r) => r.id),
     opportunityIds: opportunityIds.map((r) => r.id),
+    openLeadIds: openLeadIds.map((r) => r.id),
+    openOpportunityIds: openOpportunityIds.map((r) => r.id),
     records: ids.map((id) => byId.get(id)!).filter(Boolean),
     relatedRecords: await relatedCompanies(c, records),
   };
