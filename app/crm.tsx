@@ -517,8 +517,14 @@ export default function CRM() {
             ...previous,
             records: [
               body.record,
-              ...(body.relatedTasks || []),
-              ...(body.relatedRecords || []),
+              ...[
+                ...(body.relatedTasks || []),
+                ...(body.relatedRecords || []),
+              ].filter(
+                (record, index, records) =>
+                  records.findIndex((candidate) => candidate.id === record.id) ===
+                  index,
+              ),
               ...previous.records.filter(
                 (x) =>
                   x.id !== r.id &&

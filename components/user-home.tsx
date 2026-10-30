@@ -131,7 +131,7 @@ export default function UserHome(props: Props) {
               <div className="home-task-row" key={record.id}>
                 <button className="home-task-open" onClick={() => props.open(record)}>
                   <span className="home-task-date"><strong>{displayDate(followUpDate(record))}</strong><small>{followUpTime(record) ? followUpTime(record) + " IST" : "Any time"}</small></span>
-                  <span className="home-record-main"><strong>{followUpAction(record)}</strong><small>{record.title} · {modules[record.module].name}</small></span>
+                  <span className="home-record-main"><strong>{followUpAction(record)}</strong><small>{(() => { const parent = byId.get(record.data.enquiryId || record.data.opportunityId); return parent ? `${parent.title} · ${modules[parent.module].name}` : `${record.title} · ${modules[record.module].name}`; })()}</small></span>
                   <span className={"badge " + (followUpLabel(record, today) === "Overdue" ? "red" : followUpLabel(record, today) === "Due today" ? "amber" : "")}>{followUpLabel(record, today)}</span>
                 </button>
                 {props.can(record.module, "edit") && <button className="secondary home-complete" onClick={() => props.complete(record)}><Check size={15} />Close</button>}

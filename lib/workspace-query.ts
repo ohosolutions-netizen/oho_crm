@@ -509,7 +509,27 @@ export async function homeSQL(c: Context, from: string, to: string) {
     records = ids.length
       ? await allRecords("id IN (" + ids.map(() => "?").join(",") + ")", ids)
       : [],
-    byId = new Map(records.map((r) => [r.id, r]));
+    parentIds = [
+      ...new Set(
+        records
+          .filter((record) => record.module === "activities")
+          .map((record) => record.data.enquiryId || record.data.opportunityId)
+          .filter(Boolean),
+      ),
+    ],
+    parentRecords = parentIds.length
+      ? (await allRecords(
+          "id IN (" + parentIds.map(() => "?").join(",") + ")",
+          parentIds,
+        )).filter((record) => canSee(c, record))
+      : [],
+    responseRecords = [
+      ...records,
+      ...parentRecords.filter(
+        (parent) => !records.some((record) => record.id === parent.id),
+      ),
+    ],
+    byId = new Map(responseRecords.map((r) => [r.id, r]));
   return {
     today,
     taskIds: taskIds.map((r) => r.id),
@@ -517,7 +537,10 @@ export async function homeSQL(c: Context, from: string, to: string) {
     opportunityIds: opportunityIds.map((r) => r.id),
     openLeadIds: openLeadIds.map((r) => r.id),
     openOpportunityIds: openOpportunityIds.map((r) => r.id),
-    records: ids.map((id) => byId.get(id)!).filter(Boolean),
-    relatedRecords: await relatedCompanies(c, records),
+    records: [
+      ...ids.map((id) => byId.get(id)!).filter(Boolean),
+      ...parentRecords.filter((parent) => !ids.includes(parent.id)),
+    ],
+    relatedRecords: await relatedCompanies(c, responseRecords),
   };
 }
