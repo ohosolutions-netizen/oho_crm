@@ -114,7 +114,7 @@ export default function UserHome(props: Props) {
   return (
     <div className="user-home">
       {error && <div className="error-banner" role="alert">{error}</div>}
-      <section className="card home-tasks-card">
+      <section className="card home-tasks-card home-theme-tasks">
         <div className="card-heading home-card-heading">
           <div><h2><Clock size={19} /> My follow-up tasks</h2><p>{applied.from === applied.to ? displayDate(applied.from) : `${displayDate(applied.from)} – ${displayDate(applied.to)}`}</p></div>
           <div className="home-date-filter">
@@ -142,12 +142,12 @@ export default function UserHome(props: Props) {
       </section>
 
       <div className="home-created-grid">
-        <section className="card home-created-card"><div className="card-heading home-card-heading"><div><h2><Inbox size={19} /> Leads added or assigned today</h2><p>{leads.length} assigned to you</p></div></div>{recordList(leads, "No leads were added or assigned to you today.", "Lead")}</section>
-        <section className="card home-created-card"><div className="card-heading home-card-heading"><div><h2><TrendingUp size={19} /> New opportunities today</h2><p>{opportunities.length} assigned to you</p></div></div>{recordList(opportunities, "No new opportunities assigned to you today.", "Opportunity")}</section>
+        <section className="card home-created-card home-theme-new-leads"><div className="card-heading home-card-heading"><div><h2><Inbox size={19} /> Leads added or assigned today</h2><p>{leads.length} assigned to you</p></div></div>{recordList(leads, "No leads were added or assigned to you today.", "Lead")}</section>
+        <section className="card home-created-card home-theme-new-opportunities"><div className="card-heading home-card-heading"><div><h2><TrendingUp size={19} /> New opportunities today</h2><p>{opportunities.length} assigned to you</p></div></div>{recordList(opportunities, "No new opportunities assigned to you today.", "Opportunity")}</section>
       </div>
       <div className="home-created-grid home-open-grid">
-        <section className="card home-created-card"><div className="card-heading home-card-heading"><div><h2><Inbox size={19} /> Open leads</h2><p>{openLeads.length} active and assigned to you</p></div></div>{recordList(openLeads, "You have no open leads.", "Lead")}</section>
-        <section className="card home-created-card"><div className="card-heading home-card-heading"><div><h2><TrendingUp size={19} /> Open opportunities</h2><p>{openOpportunities.length} active and assigned to you</p></div></div>{recordList(openOpportunities, "You have no open opportunities.", "Opportunity")}</section>
+        <section className="card home-created-card home-theme-open-leads"><div className="card-heading home-card-heading"><div><h2><Inbox size={19} /> Open leads</h2><p>{openLeads.length} active and assigned to you</p></div></div>{recordList(openLeads, "You have no open leads.", "Lead")}</section>
+        <section className="card home-created-card home-theme-open-opportunities"><div className="card-heading home-card-heading"><div><h2><TrendingUp size={19} /> Open opportunities</h2><p>{openOpportunities.length} active and assigned to you</p></div></div>{recordList(openOpportunities, "You have no open opportunities.", "Opportunity")}</section>
       </div>
       <p className="home-timezone"><CalendarDays size={14} /> Dates and times use India Standard Time</p>
     </div>
