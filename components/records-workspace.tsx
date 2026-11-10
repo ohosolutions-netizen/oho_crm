@@ -83,6 +83,9 @@ type Props = {
   setQuery: (v: string) => void;
   filter: string;
   setFilter: (v: string) => void;
+  ownerFilter: string;
+  setOwnerFilter: (v: string) => void;
+  meId: string;
   company: (id: string | null) => string;
   owner: (id: string) => string;
   can: (m: string, a: Action) => boolean;
@@ -143,6 +146,7 @@ export default function RecordsWorkspace(p: Props) {
     m = modules[key],
     isLead = key === "enquiries",
     isIntegrationError = key === "integrationErrors",
+    detailsDisabled = key === "proposals",
     pipeline = isLead || key === "opportunities",
     columns = isLead
       ? p.leadCriteria.view === "Archived / Converted"
@@ -276,21 +280,6 @@ export default function RecordsWorkspace(p: Props) {
                   .map((v) => (
                     <option key={v}>{v}</option>
                   ))}
-              </Select>
-            </label>
-            <label>
-              <span>Owner</span>
-              <Select
-                aria-label="Filter lead owner"
-                value={p.leadCriteria.owner}
-                onChange={(e) => setCriteria("owner", e.target.value)}
-              >
-                <option value="">All owners</option>
-                {p.owners.map((v) => (
-                  <option key={v.id} value={v.id}>
-                    {v.name}
-                  </option>
-                ))}
               </Select>
             </label>
             <label>
@@ -444,6 +433,24 @@ export default function RecordsWorkspace(p: Props) {
             )}
           </div>
           <div className="toolbar-right">
+            <Select
+              value={p.ownerFilter}
+              onChange={(e) => p.setOwnerFilter(e.target.value)}
+              aria-label={`Filter ${m.name} by owner`}
+            >
+              <option value="mine">My records</option>
+              {p.owners.length > 1 && (
+                <option value="all">All accessible owners</option>
+              )}
+              {p.owners
+                .filter((owner) => owner.active)
+                .map((owner) => (
+                  <option key={owner.id} value={owner.id}>
+                    {owner.name}
+                    {owner.id === p.meId ? " (me)" : ""}
+                  </option>
+                ))}
+            </Select>
             {!isLead && (
               <Select
                 value={p.filter}
@@ -653,10 +660,10 @@ export default function RecordsWorkspace(p: Props) {
                 {pageRecords.map((r) => (
                   <tr
                     key={r.id}
-                    className="clickable-record-row"
-                    tabIndex={0}
-                    aria-label={`Open ${r.title}`}
-                    onClick={(e) => {
+                    className={detailsDisabled ? "" : "clickable-record-row"}
+                    tabIndex={detailsDisabled ? undefined : 0}
+                    aria-label={detailsDisabled ? undefined : `Open ${r.title}`}
+                    onClick={detailsDisabled ? undefined : (e) => {
                       if (
                         !(e.target as HTMLElement).closest(
                           "button,a,input,select",
@@ -664,7 +671,7 @@ export default function RecordsWorkspace(p: Props) {
                       )
                         p.select(r);
                     }}
-                    onKeyDown={(e) => {
+                    onKeyDown={detailsDisabled ? undefined : (e) => {
                       if (
                         e.target === e.currentTarget &&
                         ["Enter", " "].includes(e.key)
@@ -675,10 +682,7 @@ export default function RecordsWorkspace(p: Props) {
                     }}
                   >
                     <td>
-                      <button
-                        className="record-name"
-                        onClick={() => p.select(r)}
-                      >
+                      <div className="record-name">
                         <span className="record-icon">
                           <Icon size={18} />
                         </span>
@@ -703,7 +707,7 @@ export default function RecordsWorkspace(p: Props) {
                             </span>
                           )}
                         </span>
-                      </button>
+                      </div>
                     </td>
                     {key !== "companies" && !isIntegrationError && (
                       <td title={company(r)}>{company(r)}</td>
@@ -752,13 +756,15 @@ export default function RecordsWorkspace(p: Props) {
                       </span>
                     </td>
                     <td>
-                      <button
-                        className="icon-button"
-                        aria-label={`Open ${r.title}`}
-                        onClick={() => p.select(r)}
-                      >
-                        <ChevronRight size={17} />
-                      </button>
+                      {!detailsDisabled && (
+                        <button
+                          className="icon-button"
+                          aria-label={`Open ${r.title}`}
+                          onClick={() => p.select(r)}
+                        >
+                          <ChevronRight size={17} />
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}

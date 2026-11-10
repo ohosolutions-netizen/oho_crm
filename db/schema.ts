@@ -1,5 +1,5 @@
 import { sqliteTable, text, integer, uniqueIndex } from 'drizzle-orm/sqlite-core';
-export const roles = sqliteTable('roles', { id: text('id').primaryKey(), name: text('name').notNull(), parentId: text('parent_id') });
+export const roles = sqliteTable('roles', { id: text('id').primaryKey(), name: text('name').notNull(), parentId: text('parent_id'), sharePeers: integer('share_peers').notNull().default(0) });
 export const profiles = sqliteTable('profiles', { id: text('id').primaryKey(), name: text('name').notNull(), permissions: text('permissions').notNull() });
 export const users = sqliteTable('users', {
   id: text('id').primaryKey(), email: text('email').notNull(), name: text('name').notNull(), authId: text('auth_id'),

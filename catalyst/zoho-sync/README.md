@@ -37,4 +37,13 @@ Missing-phone queue entries are refreshed through a narrow source creation-time
 window on later runs, so filling the phone in Zoho allows eventual import.
 API key is never bundled into the handler or frontend. Redeploying the job leaves
 its runtime environment intact because deployment config omits env_variables.
-No production job or email notification has been configured.
+## Production activation checklist
+
+The production environment must contain the deployed `zoholeadsync` job and an
+enabled `oho_lead_sync_5m` schedule that invokes it every five minutes. Configure
+the following variables on the production job (secrets must be entered in the
+Catalyst console and must not be committed): `ZOHO_CRM_FUNCTION_URL`,
+`ZOHO_CRM_FUNCTION_API_KEY`, `ZOHO_SYNC_INITIAL_FROM`, and optionally
+`ZOHO_SYNC_FALLBACK_OWNER`. Before enabling the schedule, initialise the
+production `zoho-sync:existing-ids` baseline so the first run remains add-only.
+Development and Production schedules and environment variables are independent.

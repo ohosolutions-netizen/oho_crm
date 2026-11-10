@@ -5,6 +5,6 @@ export function recordReadWhere(module,id,quote,selectedModule){
  if(['proposals','projects'].includes(module))conditions.push('OpportunityAppId='+quote(id));
  if(module==='opportunities')conditions.push('LeadAppId='+quote(id));
  if(module==='invoices')conditions.push('ProposalAppId='+quote(id));
- if(selectedModule==='companies'&&module!=='companies')conditions.push('CompanyAppId='+quote(id));
+ if(selectedModule==='companies'&&['contacts','enquiries','opportunities','activities','proposals','invoices','projects'].includes(module))conditions.push('CompanyAppId='+quote(id));
  return '('+conditions.join(' OR ')+') AND IsDeleted=false';
 }

@@ -110,7 +110,7 @@ export default function StageTransition({
   const baseRule: StageRule = stageRules[r.module][target];
   const reproposal =
     r.module === "opportunities" &&
-    r.data.stage === "Proposal sent" &&
+    ["Proposal sent", "Negotiation"].includes(r.data.stage) &&
     target === "Proposal preparation";
   const rule: StageRule = reproposal
     ? {
@@ -214,7 +214,9 @@ export default function StageTransition({
     data.stageNote =
       (target === "Proposal sent"
         ? data.proposalNote?.trim()
-        : data.stageNote?.trim()) || "";
+        : target === "Not Contacted"
+          ? data.followUpAction?.trim()
+          : data.stageNote?.trim()) || "";
     if (target === "Proposal sent" && !data.proposalDocumentId) {
       setError("Upload the proposal document before marking it sent.");
       return;
@@ -424,7 +426,7 @@ export default function StageTransition({
                 )}
               </label>
             ))}
-            {target !== "Proposal sent" && (
+            {target !== "Proposal sent" && target !== "Not Contacted" && (
               <label className="full">
                 <span>
                   Note <em>*</em>

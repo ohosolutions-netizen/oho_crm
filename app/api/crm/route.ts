@@ -323,7 +323,7 @@ function permissions(value: unknown): PermissionMap {
     Object.keys(fullPermissions()).map((k) => [
       k,
       Object.fromEntries(
-        ["view", "create", "edit", "delete"].map((a) => [
+        ["view", "create", "edit", "delete", "call"].map((a) => [
           a,
           (value as Record<string, Record<string, boolean>>)[k]?.[a] === true,
         ]),
@@ -355,7 +355,11 @@ export async function POST(req: Request) {
     const b = (await req.json()) as Record<string, unknown>;
     const kind = string(b.kind, "operation", true);
     const operation = string(b.operation, "action", true);
-    if (!["create", "edit", "delete"].includes(operation))
+    if (
+      !["create", "edit", "delete", "reset-password", "bulk-edit"].includes(
+        operation,
+      )
+    )
       throw new APIError("Unknown action.");
     if (kind === "lead-view") {
       permit(c, "enquiries", "view");
@@ -452,6 +456,77 @@ export async function POST(req: Request) {
       return Response.json(await startVoiceCall(c, b, req.url), {
         headers: { "Cache-Control": "no-store" },
       });
+    }
+    if (kind === "user" && operation === "bulk-edit") {
+      permit(c, "administration", "edit");
+      const selectedIds = Array.isArray(b.ids)
+        ? [...new Set(b.ids.filter((value): value is string => typeof value === "string"))]
+        : [];
+      if (!selectedIds.length || selectedIds.length > 500)
+        throw new APIError("Select between 1 and 500 users.");
+      const selected = c.members.filter((member) => selectedIds.includes(member.id));
+      if (selected.length !== selectedIds.length)
+        throw new APIError("One or more selected users are unavailable.", 404);
+      const roleId = string(b.roleId, "role");
+      const profileId = string(b.profileId, "profile");
+      if (!roleId && !profileId)
+        throw new APIError("Choose a role or profile to update.");
+      if (roleId && !c.roles.some((role) => role.id === roleId))
+        throw new APIError("Choose a valid role.");
+      if (profileId && !c.profiles.some((profile) => profile.id === profileId))
+        throw new APIError("Choose a valid profile.");
+      const future = c.members.map((member) =>
+        selectedIds.includes(member.id)
+          ? {
+              ...member,
+              roleId: roleId || member.roleId,
+              profileId: profileId || member.profileId,
+            }
+          : member,
+      );
+      if (
+        !future.some(
+          (member) =>
+            member.active &&
+            ["view", "create", "edit", "delete"].every((action) =>
+              hasPermission(
+                JSON.parse(
+                  c.profiles.find((profile) => profile.id === member.profileId)
+                    ?.permissions || "{}",
+                ),
+                "administration",
+                action as "view",
+              ),
+            ),
+        )
+      )
+        throw new APIError(
+          "Keep at least one active user with full administration permissions.",
+        );
+      const statements: D1PreparedStatement[] = [];
+      for (const member of selected) {
+        const after = {
+          ...member,
+          roleId: roleId || member.roleId,
+          profileId: profileId || member.profileId,
+        };
+        statements.push(
+          database()
+            .prepare("UPDATE users SET role_id=?,profile_id=? WHERE id=?")
+            .bind(after.roleId, after.profileId, member.id),
+          await log(c.me.id, "edit", `user:${member.id}`, {
+            module: "administration",
+            reason: "Bulk role/profile update",
+            before: member,
+            after,
+          }),
+        );
+      }
+      await database().batch(statements);
+      return Response.json(
+        { ok: true, id: "bulk-users", updated: selectedIds.length },
+        { headers: { "Cache-Control": "no-store" } },
+      );
     }
     const id =
       operation === "create"
@@ -1007,7 +1082,14 @@ export async function POST(req: Request) {
         }
       }
     } else {
-      permit(c, "administration", operation as "create" | "edit" | "delete");
+      permit(
+        c,
+        "administration",
+        (operation === "reset-password" ? "edit" : operation) as
+          | "create"
+          | "edit"
+          | "delete",
+      );
       if (kind === "role") {
         const old = c.roles.find((r) => r.id === id);
         if (operation !== "create" && !old)
@@ -1028,6 +1110,7 @@ export async function POST(req: Request) {
             id,
             name: string(b.name, "role name", true),
             parentId: string(b.parentId, "parent role") || null,
+            sharePeers: b.sharePeers === true || b.sharePeers === "1" ? 1 : 0,
           };
           if (!validHierarchy([...c.roles.filter((r) => r.id !== id), role]))
             throw new APIError(
@@ -1043,9 +1126,9 @@ export async function POST(req: Request) {
           queries.push(
             database()
               .prepare(
-                "INSERT INTO roles (id,name,parent_id) VALUES (?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,parent_id=excluded.parent_id",
+                "INSERT INTO roles (id,name,parent_id,share_peers) VALUES (?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,parent_id=excluded.parent_id,share_peers=excluded.share_peers",
               )
-              .bind(id, role.name, role.parentId),
+              .bind(id, role.name, role.parentId, role.sharePeers),
           );
         }
       } else if (kind === "profile") {
@@ -1101,6 +1184,14 @@ export async function POST(req: Request) {
           throw new APIError(
             "Deactivate users to retain record ownership and audit history.",
           );
+        if (operation === "reset-password") {
+          queries.push(
+            database().prepare("DELETE FROM settings WHERE key=?").bind(`password:${id}`),
+            database()
+              .prepare("DELETE FROM settings WHERE key LIKE 'session:%' AND json_extract(value,'$.userId')=?")
+              .bind(id),
+          );
+        } else {
         const name = string(b.name, "user name", true),
           email = string(b.email, "email", true).toLowerCase();
         if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
@@ -1146,6 +1237,56 @@ export async function POST(req: Request) {
           throw new APIError(
             "Keep at least one active user with full administration permissions.",
           );
+        if (old?.active && !active) {
+          const transferOwnerId = string(
+              b.transferOwnerId,
+              "replacement record owner",
+              true,
+            ),
+            replacement = c.members.find(
+              (member) =>
+                member.id === transferOwnerId &&
+                member.id !== id &&
+                member.active,
+            );
+          if (!replacement)
+            throw new APIError(
+              "Choose another active user to receive this user's records.",
+            );
+          const transferred = await rows<{ count: number }>(
+            "SELECT COUNT(*) AS count FROM records WHERE owner_id=?",
+            id,
+          );
+          const transferTime = new Date().toISOString();
+          if (Number(transferred[0]?.count || 0)) {
+            queries.push(
+              database()
+                .prepare(
+                  "INSERT INTO audit (id,actor_id,action,target,details,created_at) " +
+                    "SELECT lower(hex(randomblob(16))),?,'edit','record:'||id," +
+                    "json_object('module',module,'reason','Owner deactivated','before',json_object('ownerId',?,'ownerName',?,'data',json('{}')),'after',json_object('ownerId',?,'ownerName',?,'data',json('{}'))),? " +
+                    "FROM records WHERE owner_id=?",
+                )
+                .bind(
+                  c.me.id,
+                  id,
+                  old.name,
+                  replacement.id,
+                  replacement.name,
+                  transferTime,
+                  id,
+                ),
+              database()
+                .prepare(
+                  "UPDATE records SET owner_id=?,updated_at=? WHERE owner_id=?",
+                )
+                .bind(replacement.id, transferTime, id),
+            );
+          }
+          b.transferredRecords = Number(transferred[0]?.count || 0);
+          b.transferOwnerId = replacement.id;
+          b.transferOwnerName = replacement.name;
+        }
         queries.push(
           database()
             .prepare(
@@ -1153,6 +1294,7 @@ export async function POST(req: Request) {
             )
             .bind(id, email, name, roleId, profileId, active),
         );
+        }
       } else throw new APIError("Unknown operation.");
     }
     queries.push(

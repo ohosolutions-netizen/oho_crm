@@ -1,6 +1,11 @@
 import { leadSources } from "./lead-picklists.ts";
-export type Action = "view" | "create" | "edit" | "delete";
-export type Role = { id: string; name: string; parentId: string | null };
+export type Action = "view" | "create" | "edit" | "delete" | "call";
+export type Role = {
+  id: string;
+  name: string;
+  parentId: string | null;
+  sharePeers: number;
+};
 export type PermissionMap = Record<string, Record<Action, boolean>>;
 export type Member = {
   id: string;
@@ -398,7 +403,7 @@ export function fullPermissions(): PermissionMap {
   return Object.fromEntries(
     moduleKeys.map((k) => [
       k,
-      { view: true, create: true, edit: true, delete: true },
+      { view: true, create: true, edit: true, delete: true, call: k === "enquiries" },
     ]),
   );
 }
@@ -412,6 +417,12 @@ export function hasPermission(
     return (
       ["view", "edit"].includes(action) &&
       permissions.administration?.view === true
+    );
+  if (action === "call")
+    return (
+      module === "enquiries" &&
+      permissions.enquiries?.view === true &&
+      (permissions.enquiries?.call ?? permissions.enquiries?.edit) === true
     );
   return (
     permissions[module]?.view === true && permissions[module]?.[action] === true
@@ -439,9 +450,12 @@ export function visibleOwner(
   owner: Member | undefined,
   roles: Role[],
 ) {
+  const myRole = roles.find((role) => role.id === me.roleId);
   return (
     !!owner &&
-    (owner.id === me.id || isDescendant(roles, owner.roleId, me.roleId))
+    (owner.id === me.id ||
+      isDescendant(roles, owner.roleId, me.roleId) ||
+      (!!myRole?.sharePeers && owner.roleId === me.roleId))
   );
 }
 export function validHierarchy(roles: Role[]) {

@@ -41,6 +41,7 @@ import {
   AlertCircle,
   Download,
   FileClock,
+  KeyRound,
 } from "lucide-react";
 
 import {
@@ -244,6 +245,7 @@ export default function CRM() {
   const [view, setView] = useState(initialView),
     [query, setQuery] = useState(""),
     [filter, setFilter] = useState("All"),
+    [ownerFilter, setOwnerFilter] = useState("mine"),
     [board, setBoard] = useState(false);
 
   const [selected, setSelected] = useState<CRMRecord | null>(null),
@@ -261,6 +263,12 @@ export default function CRM() {
   const [openingRecord, setOpeningRecord] = useState(false);
 
   const [tab, setTab] = useState("users");
+  const [userStatusFilter, setUserStatusFilter] = useState("Active");
+  const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(
+    new Set(),
+  );
+  const [bulkRoleId, setBulkRoleId] = useState("");
+  const [bulkProfileId, setBulkProfileId] = useState("");
 
   const [convertTarget, setConvertTarget] = useState<CRMRecord | null>(null);
 
@@ -294,6 +302,7 @@ export default function CRM() {
     page: number,
     search: string,
     selectedFilter: string,
+    selectedOwner: string,
     criteria: string,
     revision: number,
   ) =>
@@ -303,6 +312,7 @@ export default function CRM() {
       page,
       search,
       selectedFilter,
+      selectedOwner,
       criteria,
       revision,
     ].join("|");
@@ -380,7 +390,7 @@ export default function CRM() {
   const criteriaKey = JSON.stringify(leadCriteria);
   useEffect(() => {
     setPageIndex(0);
-  }, [view, query, filter, criteriaKey]);
+  }, [view, query, filter, ownerFilter, criteriaKey]);
   useEffect(() => {
     if (!state?.me.id || (!modules[view] && view !== "followups")) return;
     const key = pageCacheKey(
@@ -388,6 +398,7 @@ export default function CRM() {
         pageIndex,
         query,
         filter,
+        ownerFilter,
         criteriaKey,
         version,
       ),
@@ -411,6 +422,7 @@ export default function CRM() {
           pageSize: "50",
           search: query,
           filter,
+          owner: ownerFilter,
         });
         if (view === "enquiries") params.set("criteria", criteriaKey);
         fetch("/api/crm?" + params, { signal: abort.signal })
@@ -444,7 +456,7 @@ export default function CRM() {
       clearTimeout(timer);
       abort.abort();
     };
-  }, [state?.me.id, view, query, filter, criteriaKey, pageIndex, version]);
+  }, [state?.me.id, view, query, filter, ownerFilter, criteriaKey, pageIndex, version]);
   useEffect(() => {
     if (view !== "settings" || tab !== "audit" || !state?.me.id) return;
     const abort = new AbortController();
@@ -476,12 +488,13 @@ export default function CRM() {
     const nextCriteria =
         v === "enquiries" ? JSON.stringify(emptyLeadCriteria()) : criteriaKey,
       cached = pageCache.current.get(
-        pageCacheKey(v, 0, "", "All", nextCriteria, version),
+        pageCacheKey(v, 0, "", "All", "mine", nextCriteria, version),
       );
     if (v === "enquiries") setLeadCriteria(emptyLeadCriteria());
     setView(v);
     setQuery("");
     setFilter("All");
+    setOwnerFilter("mine");
     setMenu(false);
     setPageData(
       cached || {
@@ -583,6 +596,7 @@ export default function CRM() {
   }
 
   async function openRecord(r: CRMRecord) {
+    if (r.module === "proposals") return;
     if (typeof window !== "undefined") {
       const url = new URL(window.location.href);
       if (view !== "home") url.searchParams.set("view", view);
@@ -843,6 +857,32 @@ export default function CRM() {
     return body;
   }
 
+  async function bulkUpdateUsers() {
+    if (!selectedUserIds.size) {
+      setNotice("Select at least one user.");
+      return;
+    }
+    if (!bulkRoleId && !bulkProfileId) {
+      setNotice("Choose a role or profile to update.");
+      return;
+    }
+    try {
+      await save({
+        kind: "user",
+        operation: "bulk-edit",
+        ids: [...selectedUserIds],
+        roleId: bulkRoleId,
+        profileId: bulkProfileId,
+      });
+      setSelectedUserIds(new Set());
+      setBulkRoleId("");
+      setBulkProfileId("");
+      setNotice(`${selectedUserIds.size} user${selectedUserIds.size === 1 ? "" : "s"} updated.`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Unable to update users.");
+    }
+  }
+
   async function remove() {
     if (!deleteTarget) return;
     setDeleting(true);
@@ -996,6 +1036,7 @@ export default function CRM() {
         pageSize: "100",
         search: query,
         filter,
+        owner: ownerFilter,
       });
       if (view === "enquiries")
         params.set("criteria", JSON.stringify(leadCriteria));
@@ -1064,6 +1105,11 @@ export default function CRM() {
     );
 
   if (!state) return <EmailEntry error={error} onEntered={() => reload()} />;
+  const settingsUsers = state.users.filter(
+    (user) =>
+      userStatusFilter === "All" ||
+      (userStatusFilter === "Active" ? !!user.active : !user.active),
+  );
 
   return (
     <div className="app-shell">
@@ -1360,6 +1406,9 @@ export default function CRM() {
               setQuery={setQuery}
               filter={filter}
               setFilter={setFilter}
+              ownerFilter={ownerFilter}
+              setOwnerFilter={setOwnerFilter}
+              meId={state.me.id}
               company={company}
               owner={owner}
               can={can}
@@ -1451,21 +1500,124 @@ export default function CRM() {
                 </div>
 
                 {tab === "users" && (
-                  <div className="table-scroll">
-                    <table className="records-table">
-                      <thead>
-                        <tr>
-                          <th>User</th>
-                          <th>Role</th>
-                          <th>Profile</th>
-                          <th>Status</th>
-                          <th>Entry method</th>
-                          <th />
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {state.users.map((u) => (
+                  <>
+                    <div className="user-list-toolbar">
+                      <label>
+                        <span>Status</span>
+                        <Select
+                          value={userStatusFilter}
+                          onChange={(event) => {
+                            setUserStatusFilter(event.target.value);
+                            setSelectedUserIds(new Set());
+                          }}
+                        >
+                          <option>Active</option>
+                          <option>Deactivated</option>
+                          <option>All</option>
+                        </Select>
+                      </label>
+                      <span className="user-result-count">
+                        {settingsUsers.length} user
+                        {settingsUsers.length === 1 ? "" : "s"}
+                      </span>
+                      {can("administration", "edit") &&
+                        selectedUserIds.size > 0 && (
+                          <div className="user-bulk-actions">
+                            <strong>{selectedUserIds.size} selected</strong>
+                            <Select
+                              aria-label="Bulk role"
+                              value={bulkRoleId}
+                              onChange={(event) =>
+                                setBulkRoleId(event.target.value)
+                              }
+                            >
+                              <option value="">Keep current role</option>
+                              {state.roles.map((role) => (
+                                <option key={role.id} value={role.id}>
+                                  {role.name}
+                                </option>
+                              ))}
+                            </Select>
+                            <Select
+                              aria-label="Bulk profile"
+                              value={bulkProfileId}
+                              onChange={(event) =>
+                                setBulkProfileId(event.target.value)
+                              }
+                            >
+                              <option value="">Keep current profile</option>
+                              {state.profiles.map((profile) => (
+                                <option key={profile.id} value={profile.id}>
+                                  {profile.name}
+                                </option>
+                              ))}
+                            </Select>
+                            <button
+                              type="button"
+                              className="primary"
+                              onClick={() => void bulkUpdateUsers()}
+                            >
+                              Apply
+                            </button>
+                          </div>
+                        )}
+                    </div>
+                    <div className="table-scroll">
+                      <table className="records-table users-table">
+                        <thead>
+                          <tr>
+                            {can("administration", "edit") && (
+                              <th className="selection-cell">
+                                <input
+                                  type="checkbox"
+                                  aria-label="Select all visible users"
+                                  checked={
+                                    settingsUsers.length > 0 &&
+                                    settingsUsers.every((user) =>
+                                      selectedUserIds.has(user.id),
+                                    )
+                                  }
+                                  onChange={(event) =>
+                                    setSelectedUserIds((current) => {
+                                      const next = new Set(current);
+                                      for (const user of settingsUsers)
+                                        if (event.target.checked)
+                                          next.add(user.id);
+                                        else next.delete(user.id);
+                                      return next;
+                                    })
+                                  }
+                                />
+                              </th>
+                            )}
+                            <th>User</th>
+                            <th>Role</th>
+                            <th>Profile</th>
+                            <th>Status</th>
+                            <th>Entry method</th>
+                            <th />
+                          </tr>
+                        </thead>
+                        <tbody>
+                        {settingsUsers.map((u) => (
                           <tr key={u.id}>
+                            {can("administration", "edit") && (
+                              <td className="selection-cell">
+                                <input
+                                  type="checkbox"
+                                  aria-label={`Select ${u.name}`}
+                                  checked={selectedUserIds.has(u.id)}
+                                  onChange={(event) =>
+                                    setSelectedUserIds((current) => {
+                                      const next = new Set(current);
+                                      if (event.target.checked) next.add(u.id);
+                                      else next.delete(u.id);
+                                      return next;
+                                    })
+                                  }
+                                />
+                              </td>
+                            )}
                             <td>
                               <div className="record-name">
                                 <span className="avatar">
@@ -1490,7 +1642,9 @@ export default function CRM() {
                               }
                             </td>
                             <td>
-                              <Badge value={u.active ? "Active" : "Inactive"} />
+                              <Badge
+                                value={u.active ? "Active" : "Deactivated"}
+                              />
                             </td>
                             <td>
                               <small>{u.id}</small>
@@ -1510,9 +1664,10 @@ export default function CRM() {
                             </td>
                           </tr>
                         ))}
-                      </tbody>
-                    </table>
-                  </div>
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
                 )}
 
                 {tab === "roles" && (
@@ -1546,6 +1701,10 @@ export default function CRM() {
                                   .length
                               }{" "}
                               users
+                              {" · "}
+                              {r.sharePeers
+                                ? "Peer sharing enabled"
+                                : "Peer sharing restricted"}
                             </small>
                           </div>
                           <div className="row-actions">
@@ -2065,7 +2224,7 @@ function Detail({
           </span>
           <h2 id="detail-title">{r.title}</h2>
           <Badge value={r.data.status || r.data.stage || "Active"} />
-          {r.module === "enquiries" && can("enquiries", "edit") && (
+          {r.module === "enquiries" && can("enquiries", "call") && (
             <button
               type="button"
               className="secondary voice-call-button"
@@ -2150,7 +2309,6 @@ function Detail({
                 can("opportunities", "edit") && can("proposals", "create")
               }
               send={() => updateStage(r, "Proposal sent")}
-              open={open}
             />
           )}{" "}
           {detailTab === "Tasks" && (
@@ -2246,6 +2404,7 @@ function Detail({
                         "followUpAction",
                         "followUpTime",
                         "importedAt",
+                        "receivedDate",
                       ].includes(f.key),
                   )
                   .map((f) => {
@@ -2488,10 +2647,12 @@ function RecordEditor({
             roleId: (item as Member)?.roleId || "",
             profileId: (item as Member)?.profileId || "",
             active: String((item as Member)?.active ?? 1),
+            transferOwnerId: "",
           }
         : {
             name: (item as Role | Profile)?.name || "",
             parentId: (item as Role)?.parentId || "",
+            sharePeers: String((item as Role)?.sharePeers || 0),
           };
 
   const [values, setValues] = useState(initial),
@@ -2590,12 +2751,33 @@ function RecordEditor({
         Object.assign(payload, {
           name: values.name,
           parentId: values.parentId,
+          sharePeers: values.sharePeers === "1",
         });
 
       await save(payload);
       close();
     } catch (error) {
       setErr(error instanceof Error ? error.message : "Unable to save.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function resetUserPassword() {
+    if (e.kind !== "user" || !item) return;
+    if (
+      !window.confirm(
+        `Reset the password for ${(item as Member).name}? Their active sessions will be signed out and they must create a new password at their next sign-in.`,
+      )
+    )
+      return;
+    setBusy(true);
+    setErr("");
+    try {
+      await save({ kind: "user", operation: "reset-password", id: item.id });
+      close();
+    } catch (error) {
+      setErr(error instanceof Error ? error.message : "Unable to reset password.");
     } finally {
       setBusy(false);
     }
@@ -2848,6 +3030,7 @@ function RecordEditor({
                     (f) =>
                       f.type !== "time" &&
                       f.key !== "contactDate" &&
+                      !(e.module === "enquiries" && f.key === "receivedDate") &&
                       !(e.module === "enquiries" && f.key === "contactId") &&
                       !(isNewLead && newLeadDeferredFields.has(f.key)) &&
                       f.key !== "importedAt" &&
@@ -2905,27 +3088,46 @@ function RecordEditor({
                   />
                 </label>
                 {e.kind === "role" && (
-                  <label className="full">
-                    <span>Reports to</span>
-                    <Select
-                      value={values.parentId}
-                      onChange={(event) => set("parentId", event.target.value)}
-                      disabled={busy}
-                    >
-                      <option value="">Top-level role</option>
-                      {state.roles
-                        .filter((r) => r.id !== item?.id)
-                        .map((r) => (
-                          <option key={r.id} value={r.id}>
-                            {r.name}
-                          </option>
-                        ))}
-                    </Select>
-                    <small className="form-note">
-                      Users in this role can see their own records and those
-                      belonging to subordinate roles.
-                    </small>
-                  </label>
+                  <>
+                    <label className="full">
+                      <span>Reports to</span>
+                      <Select
+                        value={values.parentId}
+                        onChange={(event) => set("parentId", event.target.value)}
+                        disabled={busy}
+                      >
+                        <option value="">Top-level role</option>
+                        {state.roles
+                          .filter((r) => r.id !== item?.id)
+                          .map((r) => (
+                            <option key={r.id} value={r.id}>
+                              {r.name}
+                            </option>
+                          ))}
+                      </Select>
+                      <small className="form-note">
+                        Users in this role can access records owned by users in
+                        subordinate roles.
+                      </small>
+                    </label>
+                    <label className="full role-peer-sharing">
+                      <span>Share data with peers</span>
+                      <Select
+                        value={values.sharePeers}
+                        onChange={(event) =>
+                          set("sharePeers", event.target.value)
+                        }
+                        disabled={busy}
+                      >
+                        <option value="0">No — own and subordinate data only</option>
+                        <option value="1">Yes — include fellow users in this role</option>
+                      </Select>
+                      <small className="form-note">
+                        When enabled, users assigned to this exact role can see
+                        one another&apos;s records. Profile permissions still apply.
+                      </small>
+                    </label>
+                  </>
                 )}
                 {e.kind === "user" && (
                   <>
@@ -2994,6 +3196,60 @@ function RecordEditor({
                         <option value="0">Inactive</option>
                       </Select>
                     </label>
+                    {item &&
+                      (item as Member).active &&
+                      values.active === "0" && (
+                        <label className="full deactivation-transfer">
+                          <span>
+                            Which user should receive all owned records? <em>*</em>
+                          </span>
+                          <Select
+                            value={values.transferOwnerId}
+                            required
+                            disabled={busy}
+                            onChange={(event) =>
+                              set("transferOwnerId", event.target.value)
+                            }
+                          >
+                            <option value="">Select replacement owner</option>
+                            {state.users
+                              .filter(
+                                (user) => user.active && user.id !== item.id,
+                              )
+                              .map((user) => (
+                                <option key={user.id} value={user.id}>
+                                  {user.name} ({user.email})
+                                </option>
+                              ))}
+                          </Select>
+                          <small className="form-note">
+                            Deactivation transfers every owned lead,
+                            opportunity, task, meeting, and related record. Each
+                            record will show the ownership change in History and
+                            Timeline.
+                          </small>
+                        </label>
+                      )}
+                    {item && (
+                      <div className="full user-security-actions">
+                        <div>
+                          <strong>Password access</strong>
+                          <small className="form-note">
+                            Resetting removes the current password and signs out
+                            all sessions. The user creates a new password at the
+                            next sign-in.
+                          </small>
+                        </div>
+                        <button
+                          className="secondary"
+                          type="button"
+                          disabled={busy}
+                          onClick={resetUserPassword}
+                        >
+                          <KeyRound size={16} /> Reset password
+                        </button>
+                      </div>
+                    )}
                   </>
                 )}
               </>
@@ -3010,9 +3266,9 @@ function RecordEditor({
                 <thead>
                   <tr>
                     <th>Module</th>
-                    {(["view", "create", "edit", "delete"] as Action[]).map(
+                    {(["view", "create", "edit", "delete", "call"] as Action[]).map(
                       (a) => (
-                        <th key={a}>{a}</th>
+                        <th key={a}>{a === "call" ? "Voice call" : a}</th>
                       ),
                     )}
                   </tr>
@@ -3021,13 +3277,19 @@ function RecordEditor({
                   {Object.keys(fullPermissions()).map((m) => (
                     <tr key={m}>
                       <td>{modules[m]?.name || "Administration"}</td>
-                      {(["view", "create", "edit", "delete"] as Action[]).map(
-                        (a) => (
+                      {(["view", "create", "edit", "delete", "call"] as Action[]).map(
+                        (a) => a === "call" && m !== "enquiries" ? (
+                          <td key={a}>—</td>
+                        ) : (
                           <td key={a}>
                             <input
-                              aria-label={`${modules[m]?.name || "Administration"} ${a}`}
+                              aria-label={`${modules[m]?.name || "Administration"} ${a === "call" ? "voice call" : a}`}
                               type="checkbox"
-                              checked={!!perms[m]?.[a]}
+                              checked={
+                                a === "call"
+                                  ? !!(perms[m]?.call ?? perms[m]?.edit)
+                                  : !!perms[m]?.[a]
+                              }
                               disabled={busy}
                               onChange={(event) =>
                                 setPerms((p) => ({

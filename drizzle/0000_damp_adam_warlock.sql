@@ -28,7 +28,8 @@ CREATE TABLE `records` (
 CREATE TABLE `roles` (
 	`id` text PRIMARY KEY NOT NULL,
 	`name` text NOT NULL,
-	`parent_id` text
+	`parent_id` text,
+	`share_peers` integer DEFAULT 0 NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE `settings` (

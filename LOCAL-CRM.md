@@ -1,6 +1,6 @@
 Open http://127.0.0.1:5173/ while the local server is running.
 
-Local administrator email: c8tyvch5hn@privaterelay.appleid.com. No password is required.
+Local administrator email: c8tyvch5hn@privaterelay.appleid.com. Create the account password on first sign-in, then use that password for later access.
 
 Run start-local.cmd to start the CRM again after restarting your computer.
 The old local database in .wrangler/state and JSON backups in .sites-runtime/backups have been retained. start-local.cmd now loads and saves the shared Catalyst records; the hosted Catalyst app uses those same records.

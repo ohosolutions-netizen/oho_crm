@@ -262,7 +262,7 @@ export async function transition(c: Context, b: Record<string, unknown>) {
   const captured: Record<string, string> = {};
   if (
     r.module === "opportunities" &&
-    stageOf(r) === "Proposal sent" &&
+    ["Proposal sent", "Negotiation"].includes(stageOf(r)) &&
     target === "Proposal preparation" &&
     !input.reproposalReason?.trim()
   )

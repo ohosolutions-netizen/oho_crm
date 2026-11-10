@@ -2,7 +2,7 @@
 
 ## Verified in local preview
 
-- Email-only entry loads Overview without a password or ChatGPT sign-in.
+- First sign-in prompts an active user to create and confirm an individual password; later sign-ins require the correct password.
 - Add Company persists a customer company and returns to the dashboard.
 - Open Company shows the recorded industry and email.
 - Add Contact from Company preselects the company; the saved contact appears under related records.
@@ -50,7 +50,7 @@
 
 - The first email entered in an empty production CRM initializes its administrator.
 - Add the six remaining real users, assigning each role and profile.
-- Confirm work emails match active CRM users; email-only selection does not verify identity.
+- Confirm work emails match active CRM users and that each user creates a private password on first sign-in.
 - Have one Manager and one Executive verify visibility with representative company/enquiry records.
 
 Local mock identity and disposable regression fixtures are never included in the production database.

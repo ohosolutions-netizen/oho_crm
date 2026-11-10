@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { fullPermissions, hasPermission, visibleOwner, isDescendant, validHierarchy, followUpDate, indiaToday, normalizeData, canConvertLead } from '../lib/model.ts';
-const roles=[{id:'admin',name:'Admin',parentId:null},{id:'manager',name:'Manager',parentId:'admin'},{id:'executive',name:'Executive',parentId:'manager'},{id:'other',name:'Other branch',parentId:'admin'}];
+const roles=[{id:'admin',name:'Admin',parentId:null,sharePeers:0},{id:'manager',name:'Manager',parentId:'admin',sharePeers:0},{id:'executive',name:'Executive',parentId:'manager',sharePeers:0},{id:'other',name:'Other branch',parentId:'admin',sharePeers:0}];
 const member=(id,roleId)=>({id,roleId,name:id,email:`${id}@example.test`,authId:null,profileId:'standard',active:1});
 test('visibility covers own records and all descendants, but excludes peers and unrelated branches',()=>{
   const admin=member('a','admin'),manager=member('m','manager'),exec=member('e','executive'),peer=member('p','executive'),other=member('o','other');
@@ -12,6 +12,13 @@ test('visibility covers own records and all descendants, but excludes peers and 
   assert.equal(visibleOwner(manager,other,roles),false);
   assert.equal(visibleOwner(exec,manager,roles),false);
   assert.equal(visibleOwner(admin,undefined,roles),false);
+});
+test('peer visibility follows the sharing flag on the common role',()=>{
+  const first=member('first','executive'),second=member('second','executive');
+  assert.equal(visibleOwner(first,second,roles),false);
+  const shared=roles.map(role=>role.id==='executive'?{...role,sharePeers:1}:role);
+  assert.equal(visibleOwner(first,second,shared),true);
+  assert.equal(visibleOwner(first,member('manager','manager'),shared),false);
 });
 test('module actions are separate and every action also requires View',()=>{
   const p=fullPermissions();p.enquiries.delete=false;
@@ -44,7 +51,7 @@ test('legacy data remains usable in the split lead and opportunity pipelines',()
 test('conversion starts after contact and converted leads leave the follow-up queue',()=>{
   assert.equal(canConvertLead({status:'New Lead'}),false);
   assert.equal(canConvertLead({status:'Not connected'}),false);
-  assert.equal(canConvertLead({status:'Connected'}),true);
+  assert.equal(canConvertLead({status:'Connected'}),false);
   assert.equal(canConvertLead({status:'Discovery completed'}),true);
   assert.equal(canConvertLead({status:'Converted',convertedOpportunityId:'x'}),false);
   assert.equal(followUpDate({module:'enquiries',data:{status:'Discovery scheduled',discoveryDate:'2026-10-20'}}),'2026-10-20');

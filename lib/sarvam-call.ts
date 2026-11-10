@@ -127,7 +127,7 @@ export async function startVoiceCall(
   const lead = (await allRecords("id=?", [leadId]))[0];
   if (!lead || lead.module !== "enquiries" || !canSee(c, lead))
     throw new APIError("Lead unavailable.", 404);
-  permit(c, "enquiries", "edit");
+  permit(c, "enquiries", "call");
   const key = apiKey();
   await verifyWorkspaceAccess(key);
   const url = new URL(requestUrl);

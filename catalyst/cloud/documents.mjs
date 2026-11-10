@@ -5,6 +5,15 @@ import {join} from 'node:path';
 import {current} from './context.mjs';
 import {context,allRecords,canSee,permit,database,rows,APIError} from '../../lib/server.ts';
 const max=5*1024*1024;
+const trustedUploadOrigins=new Set([
+ 'https://oho-crm-60091125992.development.catalystserverless.in',
+ 'https://oho-crm-60091125992.catalystserverless.in',
+ 'https://crm.ohosolutions.in',
+]);
+export function uploadOriginAllowed(origin){
+ if(!origin)return true;
+ try{return trustedUploadOrigins.has(new URL(origin).origin);}catch{return false;}
+}
 async function folder(){const store=current().app.filestore();let folders=await store.getAllFolders();let found=folders.find(f=>f.toJSON().folder_name==='oho_proposal_documents');if(!found){try{found=await store.createFolder('oho_proposal_documents');}catch(e){folders=await store.getAllFolders();found=folders.find(f=>f.toJSON().folder_name==='oho_proposal_documents');if(!found)throw e;}}return found;}
 export async function documents(req,url,bytes){
  const c=await context(),records=await allRecords();
@@ -13,7 +22,7 @@ export async function documents(req,url,bytes){
   const data=await current().app.filestore().folder(doc.folderId).downloadFile(doc.fileId);return new Response(data,{headers:{'Content-Type':doc.mime,'Content-Disposition':`attachment; filename*=UTF-8''${encodeURIComponent(doc.name)}`,'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff'}});
  }
  if(req.method!=='POST')throw new APIError('Method not allowed.',405);
- if(req.headers.origin&&new URL(req.headers.origin).origin!=='https://oho-crm-60091125992.development.catalystserverless.in')throw new APIError('Upload request denied.',403);
+ if(!uploadOriginAllowed(req.headers.origin))throw new APIError('Upload request denied.',403);
  const opportunity=records.find(r=>r.id===url.searchParams.get('opportunityId')&&r.module==='opportunities');if(!opportunity||!canSee(c,opportunity))throw new APIError('Opportunity unavailable.',404);permit(c,'opportunities','edit');permit(c,'proposals','create');
  if(['Accepted','Closed lost'].includes(opportunity.data.stage))throw new APIError('Reopen the opportunity before sending another revision.');
  let name;try{name=decodeURIComponent(req.headers['x-oho-filename']||'');}catch{throw new APIError('Choose a valid document.');}name=name.replace(/[\\/\x00-\x1f]/g,'_').slice(0,180);

@@ -10,4 +10,6 @@ console.log('Targeted detail read checks passed.');
 
 assert.ok(recordReadWhere('proposals','abc',quote).includes("OpportunityAppId='abc'"));
 assert.ok(recordReadWhere('contacts','abc',quote,'companies').includes("CompanyAppId='abc'"));
+assert.ok(!recordReadWhere('integrationErrors','abc',quote,'companies').includes('CompanyAppId'));
+assert.ok(!recordReadWhere('leadEnquiries','abc',quote,'companies').includes('CompanyAppId'));
 assert.ok(!recordReadWhere('enquiries','abc',quote,'opportunities').includes('CompanyAppId'));

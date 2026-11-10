@@ -64,7 +64,20 @@ export function buildRecordQuery(c: Context, p: URLSearchParams) {
   } else conditions.push(dueSQL() + "!=''");
   const filter = p.get("filter") || "All",
     today = indiaToday();
-  if (filter === "Mine") {
+  const ownerFilter = p.get("owner") || "";
+  if (ownerFilter === "mine") {
+    conditions.push("r.owner_id=?");
+    args.push(c.me.id);
+  } else if (ownerFilter && ownerFilter !== "all") {
+    const selectedOwner = c.members.find(
+      (member) =>
+        member.id === ownerFilter && visibleOwner(c.me, member, c.roles),
+    );
+    if (!selectedOwner) throw new APIError("Select an accessible owner.", 403);
+    conditions.push("r.owner_id=?");
+    args.push(selectedOwner.id);
+  }
+  if (filter === "Mine" && ownerFilter !== "mine") {
     conditions.push("r.owner_id=?");
     args.push(c.me.id);
   } else if (

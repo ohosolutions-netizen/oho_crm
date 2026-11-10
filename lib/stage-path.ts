@@ -1,5 +1,5 @@
 const leadPaths:Record<string,string[]>={
- 'New Lead':['Not Contacted','Not Pitched','Discovery to be Scheduled'],
+ 'New Lead':['Not Contacted','Not Pitched','Discovery to be Scheduled','Junk Lead','Lead Lost'],
  'Not Contacted':['Not Pitched','Discovery to be Scheduled','Followup Later','Junk Lead','Lead Lost'],
  'Not Pitched':['Discovery to be Scheduled','Followup Later','Junk Lead','Lead Lost'],
  'Followup Later':['Not Contacted','Not Pitched','Discovery to be Scheduled','Junk Lead','Lead Lost'],
@@ -13,7 +13,7 @@ const dealPaths:Record<string,string[]>={
  'Solution planning':['Proposal preparation','Closed lost'],
  'Proposal preparation':['Proposal sent','Closed lost'],
  'Proposal sent':['Proposal preparation','Negotiation','Accepted','Closed lost'],
- Negotiation:['Accepted','Closed lost'],Accepted:[],'Closed lost':[]
+ Negotiation:['Proposal preparation','Accepted','Closed lost'],Accepted:[],'Closed lost':[]
 };
 export function allowedNextStages(module:string,current:string){return (module==='enquiries'?leadPaths:dealPaths)[current]||[];}
 export function stageMoveAllowed(module:string,current:string,target:string){return allowedNextStages(module,current).includes(target)||(module==='opportunities'&&current==='Proposal sent'&&target===current);}

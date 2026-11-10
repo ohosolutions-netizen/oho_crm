@@ -8,7 +8,7 @@ A standalone CRM for OHO Solutions, covering company and employee contacts, enqu
 - Profiles control View, Create, Edit, and Delete separately for each module.
 - All API reads and writes enforce both controls. Dashboard, search, export, and related-record views operate on server-filtered data.
 - Each user must have a role and a profile. Deactivation retains ownership and history but prevents access.
-- The user explicitly requested no authentication for this phase. Enter a work email to select a CRM user; no password, ChatGPT sign-in, or email verification is required.
+- Each active CRM user signs in with their work email and an individual password. On first sign-in, the user creates and confirms their password; no verification email is sent.
 - The first email in an empty CRM becomes its administrator. Later emails must be added as active users in Administration. Existing users and records are retained.
 - The email selection is stored in an HttpOnly cookie. It is a user selector, not proof of identity: someone who knows another user's email can select that user. Role/profile rules are applied to that selected identity.
 
@@ -70,4 +70,4 @@ The API regression script requires the loopback development server and its migra
 - Follow-up reminders are in-app due/overdue views; no email/SMS or background notifications are configured.
 - Proposal and acceptance documents are external links, not file uploads or legally binding signatures.
 - Process definitions and automated invoicing remain deferred.
-- Hosting allows opening the page without ChatGPT sign-in, as requested. An email entry is still required to select an active CRM user. Verified authentication is deferred.
+- Hosting uses CRM-native password authentication without ChatGPT sign-in. Passwords are stored only as salted PBKDF2 hashes, and authenticated access uses random server-side sessions.

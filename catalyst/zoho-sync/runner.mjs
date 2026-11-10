@@ -4,6 +4,7 @@ import {project} from '../projections.mjs';
 import {encodeNativePayload,decodeNativePayload} from '../native-record-codec.mjs';
 import {leadId as mapLeadId,enquiryId as mapEnquiryId,mapLead,sourceId,fetchFunctionIncremental} from './engine.mjs';
 import {parseFunctionOutput} from './function-response.mjs';
+import {isActiveSyncOwner,resolveFallbackOwner} from './owner.mjs';
 const prefix='zoho-sync:',empty=()=>({roles:[],profiles:[],users:[],records:[],audit:[],settings:[]});
 async function encode(value){const p=encodeNativePayload(value);for(let i=0;i<p.chunks.length;i+=100)await insert('BackendChunks',p.chunks.slice(i,i+100));return p.data;}
 async function decode(row){const h=JSON.parse(row.DataJson);return decodeNativePayload(row.DataJson,h.bodyRef?await rows('BackendChunks','CommitAppId='+quote(h.bodyRef)):[]);}
@@ -16,8 +17,8 @@ export async function runLeadSync(){
  const old=lock.SettingValue||'idle';if(old!=='idle'&&Date.now()-Number(old.split(':')[0])<20*60*1000)return {status:'busy'};
  const token=Date.now()+':'+randomUUID();const acquired=await query('UPDATE Settings SET SettingValue='+quote(token)+' WHERE AppId='+quote(prefix+'lock')+' AND SettingValue='+quote(old));if(!acquired.length)return {status:'busy'};
  let errorOwner='';try{
-  const users=[];for(const row of await rows('Users','IsDeleted=false')){const u=await decode(row);if(u.active)users.push(u);}
-  const fallback=users.find(u=>u.id===process.env.ZOHO_SYNC_FALLBACK_OWNER)||users.find(u=>u.email==='c8tyvch5hn@privaterelay.appleid.com');if(!fallback)throw Error('No active fallback owner');errorOwner=fallback.id;
+  const users=[];for(const row of await rows('Users','IsDeleted=false')){const u=await decode(row);if(isActiveSyncOwner(u,row))users.push(u);}
+  const fallback=resolveFallbackOwner(users,process.env.ZOHO_SYNC_FALLBACK_OWNER);if(!fallback)throw Error('No active fallback owner. Set ZOHO_SYNC_FALLBACK_OWNER to an active user ID or email.');errorOwner=fallback.id;
   const stateRow=await first('Settings','SettingKey='+quote(prefix+'state'));const state=stateRow?JSON.parse(stateRow.SettingValue):{checkpoint:process.env.ZOHO_SYNC_INITIAL_FROM};if(!Number.isFinite(Date.parse(state.checkpoint)))throw Error('Initial sync timestamp is not configured');
   const baseline=await first('Settings','SettingKey='+quote(prefix+'existing-ids'));if(!baseline)throw Error('Existing lead ID index is not initialised');const known=new Set(JSON.parse((await decode(baseline)).value));
   const now=new Date().toISOString();let quarantined=0,retried=0;
