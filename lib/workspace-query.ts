@@ -141,6 +141,10 @@ export function buildRecordQuery(c: Context, p: URLSearchParams) {
       conditions.push(`instr(lower(${company}),lower(?))>0`);
       args.push(...companyScope.args, criteria.company);
     }
+    if (criteria.zohoCRMId) {
+      conditions.push(`instr(${j("zohoCRMId")},?)>0`);
+      args.push(criteria.zohoCRMId.trim());
+    }
     for (const side of ["from", "to"] as const) {
       const date = criteria[side === "from" ? "fromDate" : "toDate"],
         time = criteria[side === "from" ? "fromTime" : "toTime"];
@@ -293,6 +297,85 @@ function range(from: string, to: string) {
   if (!validDate(from) || !validDate(to) || from > to)
     throw new APIError("Choose a valid date range.");
   return [from + "T00:00:00+05:30", to + "T23:59:59.999+05:30"];
+}
+export async function adminActivitySQL(
+  c: Context,
+  date: string,
+  modifiedBy = "",
+) {
+  if (!hasPermission(c.permissions, "administration", "view"))
+    throw new APIError("Your profile does not allow this action.", 403);
+  if (modifiedBy && !c.members.some((member) => member.id === modifiedBy))
+    throw new APIError("Select a valid CRM user.");
+  const dates = range(date, date);
+  const actorCondition = modifiedBy ? " AND a.actor_id=?" : "";
+  const report = await rows<{
+    recordId: string;
+    module: string;
+    title: string;
+    ownerId: string;
+    modifiedById: string;
+    modifiedBy: string;
+    action: string;
+    modifiedAt: string;
+  }>(
+    `SELECT recordId,module,title,ownerId,modifiedById,modifiedBy,action,modifiedAt
+     FROM (
+       SELECT r.id AS recordId,r.module,r.title,r.owner_id AS ownerId,
+              a.actor_id AS modifiedById,COALESCE(u.name,'Unknown user') AS modifiedBy,
+              a.action,a.created_at AS modifiedAt,
+              ROW_NUMBER() OVER (PARTITION BY r.id,r.module ORDER BY a.created_at DESC,a.id DESC) AS position
+       FROM audit a
+       JOIN records r ON a.target IN ('record:'||r.id,'lead:'||r.id)
+       LEFT JOIN users u ON u.id=a.actor_id
+       WHERE r.module IN ('enquiries','opportunities')
+         AND a.action!='create'
+         AND julianday(a.created_at) BETWEEN julianday(?) AND julianday(?)${actorCondition}
+       UNION ALL
+       SELECT r.id AS recordId,r.module,r.title,r.owner_id AS ownerId,
+              a.actor_id AS modifiedById,COALESCE(u.name,'Unknown user') AS modifiedBy,
+              'closed' AS action,a.created_at AS modifiedAt,
+              ROW_NUMBER() OVER (PARTITION BY r.id,r.module ORDER BY a.created_at DESC,a.id DESC) AS position
+       FROM audit a
+       JOIN records r ON a.target='record:'||r.id AND r.module='activities'
+       LEFT JOIN users u ON u.id=a.actor_id
+       WHERE a.action IN ('edit','followup')
+         AND julianday(a.created_at) BETWEEN julianday(?) AND julianday(?)${actorCondition}
+         AND COALESCE(
+           json_extract(a.details,'$.after.data.type'),
+           json_extract(a.details,'$.after.type'),
+           json_extract(a.details,'$.before.data.type'),
+           json_extract(a.details,'$.before.type'),
+           ''
+         )='Task'
+         AND COALESCE(
+           json_extract(a.details,'$.after.data.status'),
+           json_extract(a.details,'$.after.status'),
+           ''
+         )='Completed'
+         AND COALESCE(
+           json_extract(a.details,'$.before.data.status'),
+           json_extract(a.details,'$.before.status'),
+           ''
+         )!='Completed'
+     ) activity
+     WHERE position=1
+     ORDER BY modifiedAt DESC,recordId`,
+    ...dates,
+    ...(modifiedBy ? [modifiedBy] : []),
+    ...dates,
+    ...(modifiedBy ? [modifiedBy] : []),
+  );
+  const count = (module: string) =>
+    report.filter((row) => row.module === module).length;
+  return {
+    date,
+    modifiedBy,
+    tasksClosed: count("activities"),
+    leadsModified: count("enquiries"),
+    dealsModified: count("opportunities"),
+    report,
+  };
 }
 export async function conversionSQL(c: Context, from: string, to: string) {
   const dates = range(from, to),

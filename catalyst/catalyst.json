@@ -1,1 +1,1 @@
-{"client": {"source": "hosted-client"}, "functions": {"source": "functions", "targets": ["ohocrm", "zoholeadsync"]}}
+{"client":{"source":"hosted-client"},"functions":{"source":"functions","targets":["ohocrm","zoholeadsync"],"scripts":{"predeploy":"cd ../.. && node catalyst/build-cloud.mjs && node catalyst/zoho-sync/build.mjs"}}}

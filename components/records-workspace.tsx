@@ -100,13 +100,20 @@ type Props = {
   owners: { id: string; name: string; active: number }[];
   saveLeadView: (name: string) => Promise<LeadView>;
   removeLeadView: (id: string) => Promise<void>;
+  bulkUpdateOwner: (ids: string[], ownerId: string) => Promise<void>;
 };
 export default function RecordsWorkspace(p: Props) {
   const [filtersOpen, setFiltersOpen] = useState(false),
     [selectedView, setSelectedView] = useState(""),
     [viewName, setViewName] = useState(""),
     [savingView, setSavingView] = useState(false),
-    [viewError, setViewError] = useState("");
+    [viewError, setViewError] = useState(""),
+    [selectedRecordIds, setSelectedRecordIds] = useState<Set<string>>(
+      new Set(),
+    ),
+    [bulkOwnerId, setBulkOwnerId] = useState(""),
+    [bulkBusy, setBulkBusy] = useState(false),
+    [bulkError, setBulkError] = useState("");
   const setCriteria = (key: keyof LeadCriteria, value: string) => {
     setSelectedView("");
     p.setLeadCriteria({ ...p.leadCriteria, [key]: value });
@@ -128,6 +135,9 @@ export default function RecordsWorkspace(p: Props) {
   useEffect(() => {
     setSelectedView("");
     setFiltersOpen(false);
+    setSelectedRecordIds(new Set());
+    setBulkOwnerId("");
+    setBulkError("");
   }, [p.module]);
   const [page, setPage] = useState(0);
   useEffect(
@@ -148,6 +158,7 @@ export default function RecordsWorkspace(p: Props) {
     isIntegrationError = key === "integrationErrors",
     detailsDisabled = key === "proposals",
     pipeline = isLead || key === "opportunities",
+    bulkEnabled = pipeline && p.can(key, "edit") && !p.board,
     columns = isLead
       ? p.leadCriteria.view === "Archived / Converted"
         ? ["Converted"]
@@ -169,6 +180,27 @@ export default function RecordsWorkspace(p: Props) {
     p.pagination?.stageCounts.find((r) => r.stage === s)?.count ??
     count(s).length;
   const Icon = icons[key];
+  const selectedOnPage = pageRecords.filter((record) =>
+    selectedRecordIds.has(record.id),
+  );
+  const allOnPageSelected =
+    pageRecords.length > 0 && selectedOnPage.length === pageRecords.length;
+  async function updateOwners() {
+    if (!selectedRecordIds.size || !bulkOwnerId) return;
+    setBulkBusy(true);
+    setBulkError("");
+    try {
+      await p.bulkUpdateOwner([...selectedRecordIds], bulkOwnerId);
+      setSelectedRecordIds(new Set());
+      setBulkOwnerId("");
+    } catch (error) {
+      setBulkError(
+        error instanceof Error ? error.message : "Unable to update owners.",
+      );
+    } finally {
+      setBulkBusy(false);
+    }
+  }
   const widths =
     key === "companies"
       ? [32, 22, 27, 16, 3]
@@ -308,6 +340,18 @@ export default function RecordsWorkspace(p: Props) {
                 aria-label="Filter company name"
                 value={p.leadCriteria.company}
                 onChange={(e) => setCriteria("company", e.target.value)}
+              />
+            </label>
+            <label className="full">
+              <span>Zoho CRM ID</span>
+              <input
+                aria-label="Filter by Zoho CRM ID"
+                inputMode="numeric"
+                placeholder="Enter the complete or partial Zoho CRM ID"
+                value={p.leadCriteria.zohoCRMId}
+                onChange={(e) =>
+                  setCriteria("zohoCRMId", e.target.value.replace(/\D/g, ""))
+                }
               />
             </label>
             <label>
@@ -500,6 +544,44 @@ export default function RecordsWorkspace(p: Props) {
             </button>
           </div>
         </div>
+        {bulkEnabled && selectedRecordIds.size > 0 && (
+          <div className="record-bulk-toolbar">
+            <strong>
+              {selectedRecordIds.size} record
+              {selectedRecordIds.size === 1 ? "" : "s"} selected
+            </strong>
+            <Select
+              value={bulkOwnerId}
+              disabled={bulkBusy}
+              aria-label="New owner for selected records"
+              onChange={(event) => setBulkOwnerId(event.target.value)}
+            >
+              <option value="">Select new owner</option>
+              {p.owners
+                .filter((owner) => owner.active)
+                .map((owner) => (
+                  <option value={owner.id} key={owner.id}>
+                    {owner.name}
+                  </option>
+                ))}
+            </Select>
+            <button
+              className="primary"
+              disabled={bulkBusy || !bulkOwnerId}
+              onClick={() => void updateOwners()}
+            >
+              {bulkBusy ? "Updating…" : "Update owner"}
+            </button>
+            <button
+              className="text-button"
+              disabled={bulkBusy}
+              onClick={() => setSelectedRecordIds(new Set())}
+            >
+              Clear
+            </button>
+            {bulkError && <span role="alert" className="danger">{bulkError}</span>}
+          </div>
+        )}
         {p.pagination?.busy ? (
           <div className="record-loading" role="status">
             <span className="spinner" />
@@ -620,12 +702,32 @@ export default function RecordsWorkspace(p: Props) {
           <div className="table-scroll">
             <table className="records-table dense-records">
               <colgroup>
+                {bulkEnabled && <col style={{ width: "44px" }} />}
                 {widths.map((width, i) => (
                   <col key={i} style={{ width: width + "%" }} />
                 ))}
               </colgroup>
               <thead>
                 <tr>
+                  {bulkEnabled && (
+                    <th className="selection-cell">
+                      <input
+                        type="checkbox"
+                        aria-label="Select all records on this page"
+                        checked={allOnPageSelected}
+                        onChange={(event) => {
+                          const ids = pageRecords.map((record) => record.id);
+                          setSelectedRecordIds((current) => {
+                            const next = new Set(current);
+                            for (const id of ids)
+                              if (event.target.checked) next.add(id);
+                              else next.delete(id);
+                            return next;
+                          });
+                        }}
+                      />
+                    </th>
+                  )}
                   <th>
                     {key === "companies"
                       ? "Company"
@@ -681,6 +783,24 @@ export default function RecordsWorkspace(p: Props) {
                       }
                     }}
                   >
+                    {bulkEnabled && (
+                      <td className="selection-cell">
+                        <input
+                          type="checkbox"
+                          aria-label={`Select ${r.title}`}
+                          checked={selectedRecordIds.has(r.id)}
+                          onClick={(event) => event.stopPropagation()}
+                          onChange={(event) =>
+                            setSelectedRecordIds((current) => {
+                              const next = new Set(current);
+                              if (event.target.checked) next.add(r.id);
+                              else next.delete(r.id);
+                              return next;
+                            })
+                          }
+                        />
+                      </td>
+                    )}
                     <td>
                       <div className="record-name">
                         <span className="record-icon">

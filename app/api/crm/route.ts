@@ -1,6 +1,7 @@
 import {
   recordPage,
   dashboardSQL,
+  adminActivitySQL,
   homeSQL,
   timingSQL,
 } from "../../../lib/workspace-query";
@@ -37,6 +38,7 @@ import {
 import { convertLead } from "../../../lib/workflow";
 import {
   transition,
+  overrideLeadStage,
   updateFollowUp,
   visibleHistory,
   addNote,
@@ -54,6 +56,33 @@ export async function GET(req?: Request) {
     const admin = hasPermission(c.permissions, "administration", "view");
     const params = req ? new URL(req.url).searchParams : new URLSearchParams();
     const mode = params.get("mode");
+    if (mode === "conversion-check") {
+      const leadId = params.get("leadId") || "";
+      if (!leadId) throw new APIError("Select a lead.");
+      const records = await allRecords(
+        "id=? OR (module='opportunities' AND json_extract(data,'$.enquiryId')=?)",
+        [leadId, leadId],
+      );
+      const lead = records.find(
+        (record) => record.id === leadId && record.module === "enquiries",
+      );
+      if (!lead || !canSee(c, lead))
+        throw new APIError("Lead unavailable.", 404);
+      const opportunity = records.find(
+        (record) =>
+          record.module === "opportunities" &&
+          record.data.enquiryId === leadId &&
+          canSee(c, record),
+      );
+      return Response.json(
+        {
+          opportunity: opportunity
+            ? { id: opportunity.id, title: opportunity.title }
+            : null,
+        },
+        { headers: { "Cache-Control": "no-store" } },
+      );
+    }
     if (mode === "bootstrap")
       return Response.json(
         {
@@ -114,6 +143,19 @@ export async function GET(req?: Request) {
           c,
           params.get("from") || today.slice(0, 7) + "-01",
           params.get("to") || today,
+        ),
+        { headers: { "Cache-Control": "no-store" } },
+      );
+    }
+    if (mode === "admin-dashboard") {
+      const today = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "Asia/Kolkata",
+      }).format(new Date());
+      return Response.json(
+        await adminActivitySQL(
+          c,
+          params.get("date") || today,
+          params.get("modifiedBy") || "",
         ),
         { headers: { "Cache-Control": "no-store" } },
       );
@@ -356,9 +398,14 @@ export async function POST(req: Request) {
     const kind = string(b.kind, "operation", true);
     const operation = string(b.operation, "action", true);
     if (
-      !["create", "edit", "delete", "reset-password", "bulk-edit"].includes(
-        operation,
-      )
+      ![
+        "create",
+        "edit",
+        "delete",
+        "reset-password",
+        "bulk-edit",
+        "bulk-owner",
+      ].includes(operation)
     )
       throw new APIError("Unknown action.");
     if (kind === "lead-view") {
@@ -443,6 +490,10 @@ export async function POST(req: Request) {
       if (operation !== "edit") throw new APIError("Unknown stage action.");
       return await transition(c, b);
     }
+    if (kind === "stage-override") {
+      if (operation !== "edit") throw new APIError("Unknown stage action.");
+      return await overrideLeadStage(c, b);
+    }
     if (kind === "note") {
       if (operation !== "edit") throw new APIError("Unknown note action.");
       return await addNote(c, b);
@@ -525,6 +576,85 @@ export async function POST(req: Request) {
       await database().batch(statements);
       return Response.json(
         { ok: true, id: "bulk-users", updated: selectedIds.length },
+        { headers: { "Cache-Control": "no-store" } },
+      );
+    }
+    if (kind === "record" && operation === "bulk-owner") {
+      const module = string(b.module, "module", true);
+      if (!['enquiries', 'opportunities'].includes(module))
+        throw new APIError("Bulk owner updates are available for leads and opportunities only.");
+      permit(c, module, "edit");
+      const selectedIds = Array.isArray(b.ids)
+        ? [
+            ...new Set(
+              b.ids.filter(
+                (value): value is string =>
+                  typeof value === "string" && value.trim().length > 0,
+              ),
+            ),
+          ]
+        : [];
+      if (!selectedIds.length || selectedIds.length > 500)
+        throw new APIError("Select between 1 and 500 records.");
+      const ownerId = string(b.ownerId, "record owner", true);
+      const replacement = c.members.find(
+        (member) =>
+          member.id === ownerId &&
+          member.active &&
+          visibleOwner(c.me, member, c.roles),
+      );
+      if (!replacement)
+        throw new APIError("Assign an active user within your hierarchy.");
+      const selected = await allRecords(
+        "id IN (" + selectedIds.map(() => "?").join(",") + ")",
+        selectedIds,
+      );
+      if (
+        selected.length !== selectedIds.length ||
+        selected.some(
+          (record) => record.module !== module || !canSee(c, record),
+        )
+      )
+        throw new APIError("One or more selected records are unavailable.", 404);
+      const changed = selected.filter((record) => record.ownerId !== ownerId);
+      if (changed.length) {
+        const changedAt = new Date().toISOString();
+        const statements: D1PreparedStatement[] = [];
+        for (const record of changed) {
+          const previousOwner =
+            c.members.find((member) => member.id === record.ownerId)?.name ||
+            "Team member";
+          statements.push(
+            await log(c.me.id, "edit", `record:${record.id}`, {
+              module,
+              reason: "Bulk owner update",
+              before: {
+                ownerId: record.ownerId,
+                ownerName: previousOwner,
+                data: {},
+              },
+              after: {
+                ownerId: replacement.id,
+                ownerName: replacement.name,
+                data: {},
+              },
+            }),
+            database()
+              .prepare(
+                "UPDATE records SET owner_id=?,updated_at=? WHERE id=?",
+              )
+              .bind(replacement.id, changedAt, record.id),
+          );
+        }
+        await database().batch(statements);
+      }
+      return Response.json(
+        {
+          ok: true,
+          id: "bulk-owner",
+          updated: changed.length,
+          changes: await changedRecords(selectedIds),
+        },
         { headers: { "Cache-Control": "no-store" } },
       );
     }
@@ -1241,24 +1371,26 @@ export async function POST(req: Request) {
           const transferOwnerId = string(
               b.transferOwnerId,
               "replacement record owner",
-              true,
-            ),
-            replacement = c.members.find(
+            );
+          const replacement = transferOwnerId
+            ? c.members.find(
               (member) =>
                 member.id === transferOwnerId &&
                 member.id !== id &&
                 member.active,
-            );
-          if (!replacement)
+              )
+            : undefined;
+          if (transferOwnerId && !replacement)
             throw new APIError(
               "Choose another active user to receive this user's records.",
             );
-          const transferred = await rows<{ count: number }>(
-            "SELECT COUNT(*) AS count FROM records WHERE owner_id=?",
-            id,
-          );
-          const transferTime = new Date().toISOString();
-          if (Number(transferred[0]?.count || 0)) {
+          if (replacement) {
+            const transferred = await rows<{ count: number }>(
+              "SELECT COUNT(*) AS count FROM records WHERE owner_id=?",
+              id,
+            );
+            const transferTime = new Date().toISOString();
+            if (Number(transferred[0]?.count || 0)) {
             queries.push(
               database()
                 .prepare(
@@ -1282,10 +1414,11 @@ export async function POST(req: Request) {
                 )
                 .bind(replacement.id, transferTime, id),
             );
+            }
+            b.transferredRecords = Number(transferred[0]?.count || 0);
+            b.transferOwnerId = replacement.id;
+            b.transferOwnerName = replacement.name;
           }
-          b.transferredRecords = Number(transferred[0]?.count || 0);
-          b.transferOwnerId = replacement.id;
-          b.transferOwnerName = replacement.name;
         }
         queries.push(
           database()

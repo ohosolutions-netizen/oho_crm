@@ -1,13 +1,17 @@
 import process from "node:process";
 import { readFile } from "node:fs/promises";
-import { config, insert, rows, quote } from "../catalyst/client.mjs";
-import { decodeNativePayload } from "../catalyst/native-record-codec.mjs";
+import { config, insert, rows, quote, update } from "../catalyst/client.mjs";
+import {
+  decodeNativePayload,
+  encodeNativePayload,
+} from "../catalyst/native-record-codec.mjs";
 
 const dryRun = process.argv.includes("--dry-run");
 if (process.argv.includes("--production")) config.environment = "Production";
 const opportunityMode = process.argv.includes("--opportunities");
+const repairAll = process.argv.includes("--repair-all");
 const csvArg = process.argv.indexOf("--csv");
-const source = csvArg >= 0 ? await readFile(process.argv[csvArg + 1], "utf8") : await new Promise((resolve, reject) => {
+const source = repairAll ? "" : csvArg >= 0 ? await readFile(process.argv[csvArg + 1], "utf8") : await new Promise((resolve, reject) => {
   let value = "";
   process.stdin.setEncoding("utf8");
   process.stdin.on("data", (chunk) => (value += chunk));
@@ -33,7 +37,7 @@ function parseCSV(text) {
   const headers = values.shift().map((value) => value.replace(/^\uFEFF/, ""));
   return values.map((cells) => Object.fromEntries(headers.map((header, index) => [header, cells[index] || ""])));
 }
-const notes = csvArg >= 0 ? parseCSV(source) : JSON.parse(source);
+const notes = repairAll ? [] : csvArg >= 0 ? parseCSV(source) : JSON.parse(source);
 const normalizeZohoId = (value) => String(value || "").replace(/^zcrm_/i, "").trim();
 
 async function payload(row) {
@@ -42,6 +46,48 @@ async function payload(row) {
   if (!header.bodyRef) return header;
   const chunks = await rows("BackendChunks", `CommitAppId=${quote(header.bodyRef)}`);
   return decodeNativePayload(row.DataJson, chunks);
+}
+
+if (repairAll) {
+  const legacy = (
+    await rows("Settings", "SettingKey LIKE 'zoho-note:*' AND IsDeleted=false")
+  ).filter((row) => !row.DataJson && row.SettingKey && row.SettingValue);
+  const repairs = [];
+  const chunks = [];
+  for (const row of legacy) {
+    const encoded = encodeNativePayload({
+      key: row.SettingKey,
+      value: row.SettingValue,
+    });
+    repairs.push({
+      AppId: row.SettingKey,
+      SettingKey: row.SettingKey,
+      SettingValue: row.SettingValue,
+      DataJson: encoded.data,
+      IsDeleted: false,
+      ROWID: row.ROWID,
+    });
+    chunks.push(...encoded.chunks);
+  }
+  if (!dryRun) {
+    for (let offset = 0; offset < chunks.length; offset += 100)
+      await insert("BackendChunks", chunks.slice(offset, offset + 100));
+    for (let offset = 0; offset < repairs.length; offset += 100)
+      await update("Settings", repairs.slice(offset, offset + 100));
+  }
+  console.log(
+    JSON.stringify(
+      {
+        legacyNotes: legacy.length,
+        repaired: dryRun ? 0 : repairs.length,
+        readyToRepair: repairs.length,
+        dryRun,
+      },
+      null,
+      2,
+    ),
+  );
+  process.exit(0);
 }
 
 const [leadRows, enquiryRows] = opportunityMode
@@ -71,12 +117,14 @@ for (const row of enquiryRows) {
   }
 }
 
-const existing = new Set(
+const existing = new Map(
   (await rows("Settings", "SettingKey LIKE 'zoho-note:*' AND IsDeleted=false")).map(
-    (row) => row.SettingKey,
+    (row) => [row.SettingKey, row],
   ),
 );
 const pending = [];
+const repairs = [];
+const chunks = [];
 const unmatched = [];
 let skipped = 0;
 for (const note of notes) {
@@ -92,7 +140,7 @@ for (const note of notes) {
   }
   const noteId = String(note["Record Id"] || "").trim();
   const key = `zoho-note:${leadId}:${noteId}`;
-  if (!noteId || existing.has(key)) {
+  if (!noteId) {
     skipped += 1;
     continue;
   }
@@ -107,18 +155,42 @@ for (const note of notes) {
     zohoLeadId: note["Parent ID.id"] || "",
     source: "Zoho CRM",
   });
-  pending.push({
+  const encoded = encodeNativePayload({ key, value });
+  const row = {
     AppId: key,
     SettingKey: key,
     SettingValue: value,
+    DataJson: encoded.data,
     IsDeleted: false,
-  });
-  existing.add(key);
+  };
+  const prior = existing.get(key);
+  if (prior) {
+    let readable = false;
+    try {
+      const decoded = await payload(prior);
+      readable = decoded?.key === key && decoded?.value === value;
+    } catch {}
+    if (readable) skipped += 1;
+    else {
+      repairs.push({ ...row, ROWID: prior.ROWID });
+      chunks.push(...encoded.chunks);
+    }
+  } else {
+    pending.push(row);
+    chunks.push(...encoded.chunks);
+  }
+  existing.set(key, row);
 }
 
 if (!dryRun) {
+  for (let offset = 0; offset < chunks.length; offset += 100) {
+    await insert("BackendChunks", chunks.slice(offset, offset + 100));
+  }
   for (let offset = 0; offset < pending.length; offset += 100) {
     await insert("Settings", pending.slice(offset, offset + 100));
+  }
+  for (let offset = 0; offset < repairs.length; offset += 100) {
+    await update("Settings", repairs.slice(offset, offset + 100));
   }
 }
 
@@ -126,9 +198,11 @@ console.log(
   JSON.stringify(
     {
       sourceNotes: notes.length,
-  matchedRecords: leadByZohoId.size,
+      matchedRecords: leadByZohoId.size,
       inserted: dryRun ? 0 : pending.length,
       readyToInsert: pending.length,
+      repaired: dryRun ? 0 : repairs.length,
+      readyToRepair: repairs.length,
       alreadyPresent: skipped,
       unmatched: unmatched.length,
       unmatchedSample: unmatched.slice(0, 20),

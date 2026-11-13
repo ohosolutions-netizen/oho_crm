@@ -75,6 +75,7 @@ import OverviewDashboard, {
   type DashboardData,
 } from "../components/overview-dashboard";
 import UserHome from "../components/user-home";
+import AdminDashboard from "../components/admin-dashboard";
 import RecordLookup from "../components/record-lookup";
 import RecordsWorkspace from "../components/records-workspace";
 
@@ -87,6 +88,7 @@ import StageTransition from "../components/stage-transition";
 import RecordActions from "../components/record-actions";
 
 import StageJourney from "../components/stage-journey";
+import AdminStageOverride from "../components/admin-stage-override";
 
 import FollowUpDialog from "../components/follow-up-dialog";
 import MeetingDialog from "../components/meeting-dialog";
@@ -276,6 +278,8 @@ export default function CRM() {
     record: CRMRecord;
     stage: string;
   } | null>(null);
+  const [stageOverrideTarget, setStageOverrideTarget] =
+    useState<CRMRecord | null>(null);
 
   const [followUpTarget, setFollowUpTarget] = useState<{
     record: CRMRecord;
@@ -883,6 +887,19 @@ export default function CRM() {
     }
   }
 
+  async function bulkUpdateRecordOwners(ids: string[], ownerId: string) {
+    await save({
+      kind: "record",
+      operation: "bulk-owner",
+      module: view,
+      ids,
+      ownerId,
+    });
+    setNotice(
+      `${ids.length} ${view === "enquiries" ? "lead" : "opportunity"}${ids.length === 1 ? "" : "s"} reassigned.`,
+    );
+  }
+
   async function remove() {
     if (!deleteTarget) return;
     setDeleting(true);
@@ -1192,6 +1209,15 @@ export default function CRM() {
         <div className="sidebar-bottom">
           {can("administration", "view") && (
             <button
+              className={view === "admin-dashboard" ? "active" : ""}
+              onClick={() => navigate("admin-dashboard")}
+            >
+              <ShieldCheck size={18} />
+              Admin dashboard
+            </button>
+          )}
+          {can("administration", "view") && (
+            <button
               className={view === "settings" ? "active" : ""}
               onClick={() => navigate("settings")}
             >
@@ -1236,6 +1262,7 @@ export default function CRM() {
                 (
                   {
                     dashboard: "Overview",
+                    "admin-dashboard": "Admin dashboard",
                     home: "Home",
                     followups: "Follow-ups",
                     settings: "Administration",
@@ -1273,6 +1300,8 @@ export default function CRM() {
                 OHO SOLUTIONS /{" "}
                 {view === "home" || view === "dashboard"
                   ? "YOUR BUSINESS AT A GLANCE"
+                  : view === "admin-dashboard"
+                    ? "ADMIN ACTIVITY"
                   : view === "settings"
                     ? "WORKSPACE CONTROLS"
                     : "CUSTOMER OPERATIONS"}
@@ -1282,6 +1311,8 @@ export default function CRM() {
                   ? "Good to see you, " + state.me.name.split(/[ @]/)[0] + "."
                   : view === "dashboard"
                   ? "Good to see you, " + state.me.name.split(/[ @]/)[0] + "."
+                  : view === "admin-dashboard"
+                    ? "Admin dashboard"
                   : modules[view]?.name ||
                     (
                       {
@@ -1296,6 +1327,8 @@ export default function CRM() {
                     {
                       dashboard:
                         "Every relationship, every opportunity, every next step.",
+                      "admin-dashboard":
+                        "Monitor team activity for any selected date.",
                       home: "Your tasks and newly assigned records, ready to work.",
                       followups:
                         "Your due dates and next actions, together in one place.",
@@ -1358,6 +1391,14 @@ export default function CRM() {
               }
             />
           )}
+          {view === "admin-dashboard" &&
+            can("administration", "view") && (
+              <AdminDashboard
+                version={version}
+                users={state.users}
+                open={openRecord}
+              />
+            )}
           {pageError && (
             <div className="error-banner" role="alert">
               {pageError}
@@ -1425,6 +1466,7 @@ export default function CRM() {
               owners={state.owners}
               saveLeadView={saveLeadView}
               removeLeadView={removeLeadView}
+              bulkUpdateOwner={bulkUpdateRecordOwners}
             />
           )}
 
@@ -1873,6 +1915,7 @@ export default function CRM() {
         !editor &&
         !convertTarget &&
         !transitionTarget &&
+        !stageOverrideTarget &&
         !followUpTarget &&
         !meetingTarget && (
           <Detail
@@ -1895,6 +1938,7 @@ export default function CRM() {
             company={company}
             owner={owner}
             updateStage={updateStage}
+            overrideStage={() => setStageOverrideTarget(selected)}
             convert={() => setConvertTarget(selected)}
             schedule={() => updateStage(selected, "Discovery scheduled")}
             addFollowUp={() =>
@@ -1915,6 +1959,14 @@ export default function CRM() {
           canEditActivities={can("activities", "edit")}
           refresh={refreshTransition}
           close={() => setTransitionTarget(null)}
+          save={save}
+        />
+      )}
+
+      {stageOverrideTarget && (
+        <AdminStageOverride
+          record={stageOverrideTarget}
+          close={() => setStageOverrideTarget(null)}
           save={save}
         />
       )}
@@ -2091,6 +2143,7 @@ function Detail({
   company,
   owner,
   updateStage,
+  overrideStage,
   convert,
   schedule,
   planFollowUp,
@@ -2109,6 +2162,7 @@ function Detail({
   company: (id: string | null) => string;
   owner: (id: string) => string;
   updateStage: (r: CRMRecord, stage: string) => void;
+  overrideStage: () => void;
   convert: () => void;
   schedule: () => void;
   addFollowUp?: () => void;
@@ -2270,6 +2324,8 @@ function Detail({
               );
               if (opportunity) open(opportunity);
             }}
+            canOverrideStage={state.me.profileId === "administrator"}
+            overrideStage={overrideStage}
           />
         )}
         <div
@@ -3201,11 +3257,10 @@ function RecordEditor({
                       values.active === "0" && (
                         <label className="full deactivation-transfer">
                           <span>
-                            Which user should receive all owned records? <em>*</em>
+                            Transfer owned records to another user (optional)
                           </span>
                           <Select
                             value={values.transferOwnerId}
-                            required
                             disabled={busy}
                             onChange={(event) =>
                               set("transferOwnerId", event.target.value)
@@ -3223,10 +3278,10 @@ function RecordEditor({
                               ))}
                           </Select>
                           <small className="form-note">
-                            Deactivation transfers every owned lead,
-                            opportunity, task, meeting, and related record. Each
-                            record will show the ownership change in History and
-                            Timeline.
+                            Leave this empty to keep the records assigned to the
+                            inactive user. If you select a replacement, every
+                            owned record is transferred and the ownership change
+                            appears in History and Timeline.
                           </small>
                         </label>
                       )}

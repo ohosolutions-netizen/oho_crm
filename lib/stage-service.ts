@@ -25,6 +25,7 @@ import {
   followUpAction,
   followUpTime,
   dateTimeKey,
+  leadStages,
   modules,
   type CRMRecord,
 } from "./model";
@@ -567,6 +568,49 @@ export async function transition(c: Context, b: Record<string, unknown>) {
     closedTasks,
     meeting,
     proposal,
+  );
+}
+
+export async function overrideLeadStage(
+  c: Context,
+  b: Record<string, unknown>,
+) {
+  if (c.me.profileId !== "administrator")
+    throw new APIError("Only administrators can edit an existing lead stage.", 403);
+  const id = typeof b.id === "string" ? b.id : "";
+  const r = (await allRecords("id=?", [id])).find((record) => record.id === id);
+  if (!r || !canSee(c, r)) throw new APIError("Lead unavailable.", 404);
+  if (r.module !== "enquiries")
+    throw new APIError("Stage override is available only for leads.");
+  permit(c, "enquiries", "edit");
+  if (r.data.status === "Converted")
+    throw new APIError("A converted lead stage cannot be overridden.", 409);
+
+  const target = typeof b.targetStage === "string" ? b.targetStage.trim() : "";
+  if (!leadStages.includes(target) || target === "Converted")
+    throw new APIError("Select a valid lead stage. Use Convert for Converted leads.");
+  if (target === r.data.status)
+    throw new APIError("Select a stage different from the current stage.");
+  const reason = typeof b.reason === "string" ? b.reason.trim() : "";
+  if (!reason) throw new APIError("Enter a reason for changing the stage.");
+  if (reason.length > 1000)
+    throw new APIError("The stage-change reason must be 1,000 characters or fewer.");
+
+  const fromStage = r.data.status || "New Lead";
+  const data = { ...r.data, status: target, latestStageNote: reason };
+  return commit(
+    c,
+    r,
+    data,
+    "transition",
+    {
+      module: "enquiries",
+      fromStage,
+      toStage: target,
+      adminOverride: true,
+      data: { stageNote: reason, adminOverride: "Administrator override" },
+    },
+    b.expectedUpdatedAt,
   );
 }
 export async function updateFollowUp(c: Context, b: Record<string, unknown>) {

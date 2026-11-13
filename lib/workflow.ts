@@ -68,12 +68,111 @@ export async function convertLead(c: Context, b: Record<string, unknown>) {
         : "Connect with the lead before converting it to an opportunity.",
       409,
     );
-  if (
-    records.some(
-      (r) => r.module === "opportunities" && r.data.enquiryId === lead.id,
-    )
-  )
-    throw new APIError("This lead already has a linked opportunity.", 409);
+  const existingOpportunity = records.find(
+    (r) => r.module === "opportunities" && r.data.enquiryId === lead.id,
+  );
+  if (existingOpportunity) {
+    if (b.confirmExistingOpportunity !== true)
+      throw new APIError(
+        `An opportunity already exists: ${existingOpportunity.title}. Confirm to archive this lead without creating another opportunity.`,
+        409,
+      );
+    if (!canSee(c, existingOpportunity))
+      throw new APIError("The linked opportunity is not accessible.", 403);
+    const now = new Date().toISOString();
+    const companyName = text(
+      existingOpportunity.data.companyName,
+      lead.data.companyName || "",
+      180,
+    );
+    const linkedCompany = records.find(
+      (record) =>
+        record.module === "companies" &&
+        (record.id === existingOpportunity.companyId ||
+          record.id === lead.companyId) &&
+        canSee(c, record),
+    );
+    let companyId = linkedCompany?.id || "";
+    const queries: D1PreparedStatement[] = [];
+    if (!companyId && companyName) {
+      const company = records.find(
+        (record) =>
+          record.module === "companies" &&
+          canSee(c, record) &&
+          record.title.trim().toLocaleLowerCase() ===
+            companyName.toLocaleLowerCase(),
+      );
+      companyId = company?.id || "";
+      if (!companyId) {
+        permit(c, "companies", "create");
+        companyId = crypto.randomUUID();
+        queries.push(
+          database()
+            .prepare(
+              "INSERT INTO records (id,module,title,owner_id,company_id,data,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)",
+            )
+            .bind(
+              companyId,
+              "companies",
+              companyName,
+              existingOpportunity.ownerId,
+              null,
+              JSON.stringify({ status: "Prospect", website: "" }),
+              now,
+              now,
+            ),
+        );
+      }
+    }
+    const converted = {
+      ...lead.data,
+      status: "Converted",
+      convertedOpportunityId: existingOpportunity.id,
+      convertedAt: now,
+    };
+    queries.push(
+      database()
+        .prepare("INSERT INTO settings (key,value) VALUES (?,?)")
+        .bind("lead_conversion:" + lead.id, existingOpportunity.id),
+      database()
+        .prepare("UPDATE records SET company_id=?,updated_at=? WHERE id=?")
+        .bind(companyId || null, now, existingOpportunity.id),
+      database()
+        .prepare("UPDATE records SET company_id=?,data=?,updated_at=? WHERE id=?")
+        .bind(companyId || null, JSON.stringify(converted), now, lead.id),
+      await log(c.me.id, "convert", "lead:" + lead.id, {
+        before: lead,
+        opportunityId: existingOpportunity.id,
+        companyId,
+        after: { ...lead, companyId: companyId || null, data: converted },
+        data: {
+          stageNote: "Archived against existing migrated opportunity",
+          opportunityName: existingOpportunity.title,
+          companyName,
+        },
+      }),
+    );
+    try {
+      await database().batch(queries);
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        /UNIQUE constraint failed: settings.key/.test(error.message)
+      )
+        throw new APIError("This lead has already been converted.", 409);
+      throw error;
+    }
+    return Response.json(
+      {
+        ok: true,
+        id: existingOpportunity.id,
+        companyId,
+        leadId: lead.id,
+        existingOpportunity: true,
+      },
+      { headers: { "Cache-Control": "no-store" } },
+    );
+  }
   if (!c.members.find((u) => u.id === lead.ownerId)?.active)
     throw new APIError("Assign an active owner to the lead before converting.");
   const title = text(b.title, lead.title, 180);

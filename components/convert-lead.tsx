@@ -33,12 +33,88 @@ export default function ConvertLeadDialog({ lead, state, close, save }: Props) {
   });
   const [createCompany, setCreateCompany] = useState(false),
     [createContact, setCreateContact] = useState(false),
+    [existingOpportunity, setExistingOpportunity] = useState<{
+      id: string;
+      title: string;
+    } | null>(null),
+    [companyResolution, setCompanyResolution] = useState<
+      "idle" | "checking" | "matched" | "missing"
+    >(lead.companyId || !lead.data.companyName?.trim() ? "idle" : "checking"),
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
   const form = useRef<HTMLFormElement>(null);
   useEffect(() => {
     form.current?.querySelector<HTMLInputElement>("input")?.focus();
   }, []);
+  useEffect(() => {
+    const abort = new AbortController();
+    const params = new URLSearchParams({
+      mode: "conversion-check",
+      leadId: lead.id,
+    });
+    fetch("/api/crm?" + params, { signal: abort.signal })
+      .then(async (response) => {
+        const body = (await response.json()) as {
+          opportunity?: { id: string; title: string } | null;
+          error?: string;
+        };
+        if (!response.ok)
+          throw new Error(body.error || "Unable to check this lead.");
+        if (!abort.signal.aborted)
+          setExistingOpportunity(body.opportunity || null);
+      })
+      .catch((caught) => {
+        if (!abort.signal.aborted)
+          setError(
+            caught instanceof Error
+              ? caught.message
+              : "Unable to check this lead.",
+          );
+      });
+    return () => abort.abort();
+  }, [lead.id]);
+  useEffect(() => {
+    const companyName = lead.data.companyName?.trim();
+    if (lead.companyId || !companyName) return;
+    const abort = new AbortController();
+    const params = new URLSearchParams({
+      mode: "lookup",
+      module: "companies",
+      search: companyName,
+    });
+    fetch("/api/crm?" + params, { signal: abort.signal })
+      .then(async (response) => {
+        const body = (await response.json()) as {
+          records?: CRMRecord[];
+          error?: string;
+        };
+        if (!response.ok)
+          throw new Error(body.error || "Unable to check the lead company.");
+        const normalized = companyName.toLocaleLowerCase();
+        const company = body.records?.find(
+          (record) => record.title.trim().toLocaleLowerCase() === normalized,
+        );
+        if (company) {
+          setV((current) => ({ ...current, companyId: company.id }));
+          setCompanyResolution("matched");
+        } else {
+          setCreateCompany(true);
+          setCreateContact(true);
+          setCompanyResolution("missing");
+        }
+      })
+      .catch((caught) => {
+        if (!abort.signal.aborted) {
+          setCompanyResolution("idle");
+          setError(
+            caught instanceof Error
+              ? caught.message
+              : "Unable to check the lead company.",
+          );
+        }
+      });
+    return () => abort.abort();
+  }, [lead.companyId, lead.data.companyName]);
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
       if (event.key === "Escape" && !busy) close();
@@ -61,6 +137,7 @@ export default function ConvertLeadDialog({ lead, state, close, save }: Props) {
         kind: "convert",
         operation: "create",
         leadId: lead.id,
+        confirmExistingOpportunity: Boolean(existingOpportunity),
         ...v,
         createCompany,
         createContact: createCompany || createContact,
@@ -104,6 +181,14 @@ export default function ConvertLeadDialog({ lead, state, close, save }: Props) {
             <div className="error-banner" role="alert">
               <AlertCircle size={16} />
               {error}
+            </div>
+          )}
+          {existingOpportunity && (
+            <div className="error-banner" role="status">
+              <AlertCircle size={16} />
+              Opportunity “{existingOpportunity.title}” already exists from
+              migrated data. Continuing will archive this lead as Converted
+              and repair its company link. No new opportunity will be created.
             </div>
           )}
           <p className="conversion-intro">
@@ -156,6 +241,14 @@ export default function ConvertLeadDialog({ lead, state, close, save }: Props) {
                   <Plus size={14} />
                   Add a new company
                 </button>
+                {companyResolution === "checking" && (
+                  <small>Checking the company saved on this lead…</small>
+                )}
+                {companyResolution === "matched" && (
+                  <small>
+                    Matched and selected the company saved on this lead.
+                  </small>
+                )}
               </div>
             ) : (
               <section className="full conversion-create-panel">
@@ -173,6 +266,13 @@ export default function ConvertLeadDialog({ lead, state, close, save }: Props) {
                     Select existing
                   </button>
                 </div>
+                {companyResolution === "missing" && (
+                  <p className="field-help">
+                    This lead had a company name but no linked Company record.
+                    Complete the details below to create and link it during
+                    conversion.
+                  </p>
+                )}
                 <div className="form-grid">
                   <label>
                     <span>
@@ -334,8 +434,14 @@ export default function ConvertLeadDialog({ lead, state, close, save }: Props) {
           <div className="conversion-summary">
             <Check size={16} />
             <span>
-              Starts at <strong>Solution planning</strong>, then Proposal
-              preparation → Proposal sent → Negotiation.
+              {existingOpportunity ? (
+                <>The existing opportunity and its stage will be retained.</>
+              ) : (
+                <>
+                  Starts at <strong>Solution planning</strong>, then Proposal
+                  preparation → Proposal sent → Negotiation.
+                </>
+              )}
             </span>
           </div>
         </div>
@@ -350,8 +456,17 @@ export default function ConvertLeadDialog({ lead, state, close, save }: Props) {
             >
               Cancel
             </button>
-            <button type="submit" className="primary" disabled={busy}>
-              {busy ? "Converting…" : "Convert lead"}
+            <button
+              type="submit"
+              className="primary"
+              formNoValidate={Boolean(existingOpportunity)}
+              disabled={busy}
+            >
+              {busy
+                ? "Converting…"
+                : existingOpportunity
+                  ? "Archive as converted"
+                  : "Convert lead"}
               <ArrowRight size={15} />
             </button>
           </div>

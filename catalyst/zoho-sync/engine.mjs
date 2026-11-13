@@ -2,11 +2,12 @@ import {createHash} from 'node:crypto';
 export const sourceId=value=>String(value||'').replace(/^zcrm_/, '');
 export function leadId(id){const hex=createHash('sha256').update('oho:zoho-lead:'+sourceId(id)).digest('hex').slice(0,32);return hex.slice(0,8)+'-'+hex.slice(8,12)+'-5'+hex.slice(13,16)+'-a'+hex.slice(17,20)+'-'+hex.slice(20);}
 export function enquiryId(id){const hex=createHash('sha256').update('oho:zoho-enquiry:'+sourceId(id)).digest('hex').slice(0,32);return hex.slice(0,8)+'-'+hex.slice(8,12)+'-5'+hex.slice(13,16)+'-b'+hex.slice(17,20)+'-'+hex.slice(20);}
-export function mapLead(lead,ownerId,now){
+export function replayStart(checkpoint,overlapSeconds=120){const time=Date.parse(checkpoint);if(!Number.isFinite(time))throw Error('Invalid sync checkpoint');return new Date(time-overlapSeconds*1000).toISOString().replace(/\.\d{3}Z$/,'Z');}
+export function mapLead(lead,ownerId,now,ownerName=''){
  const id=sourceId(lead.id),title=[lead.First_Name,lead.Last_Name].filter(Boolean).join(' ').trim()||lead.Full_Name||lead.Email;
  if(!id||!/^\d+$/.test(id))throw Error('Invalid Zoho lead ID');if(!title)throw Error('Missing lead name');if(!(lead.Phone||lead.Mobile||'').trim())throw Error('Missing mandatory lead phone');if(!ownerId)throw Error('No active intake owner');
  const created=new Date(lead.Created_Time);if(!Number.isFinite(created.getTime()))throw Error('Missing creation timestamp');
- const data={status:'New Lead',zohoCRMId:id,zohoCRMStatus:lead.Lead_Status||'',zohoCreatedTime:lead.Created_Time,zohoModifiedTime:lead.Modified_Time,companyName:lead.Company||'',contactName:title,email:lead.Email||'',phone:lead.Phone||lead.Mobile,source:lead.Lead_Source||'Other',requirements:lead.Description||'New enquiry received from Zoho CRM',notes:lead.Description||'',receivedTime:created.toLocaleTimeString('en-GB',{timeZone:'Asia/Kolkata',hour:'2-digit',minute:'2-digit'}),receivedDate:created.toLocaleDateString('en-CA',{timeZone:'Asia/Kolkata'}),importOrigin:'Zoho CRM API',importedAt:now};
+ const data={status:'New Lead',zohoCRMId:id,zohoCRMStatus:lead.Lead_Status||'',zohoCRMOwner:ownerName||lead.Owner?.name||'',zohoCRMOwnerId:sourceId(lead.Owner?.id),zohoCreatedTime:lead.Created_Time,zohoModifiedTime:lead.Modified_Time,companyName:lead.Company||'',contactName:title,email:lead.Email||'',phone:lead.Phone||lead.Mobile,source:lead.Lead_Source||'Other',requirements:lead.Description||'New enquiry received from Zoho CRM',notes:lead.Description||'',receivedTime:created.toLocaleTimeString('en-GB',{timeZone:'Asia/Kolkata',hour:'2-digit',minute:'2-digit'}),receivedDate:created.toLocaleDateString('en-CA',{timeZone:'Asia/Kolkata'}),importOrigin:'Zoho CRM API',importedAt:now};
  return {id:leadId(id),module:'enquiries',title,owner_id:ownerId,company_id:null,data:JSON.stringify(data),created_at:created.toISOString(),updated_at:now};
 }
 export async function fetchIncremental({fetchPage,checkpoint,now,onLead,maxPages=500}){
@@ -19,7 +20,7 @@ export async function fetchIncremental({fetchPage,checkpoint,now,onLead,maxPages
 
 // Custom REST function mode: fixed window, keyset pagination, add-only caller.
 export async function fetchFunctionIncremental({callFunction,checkpoint,onLead,maxPages=500,overlapSeconds=120,windowEnd=''}){
- const last_sync_time=new Date(Date.parse(checkpoint)-overlapSeconds*1000).toISOString().replace(/\.\d{3}Z$/,'Z');let sync_until=windowEnd,after_id='',imported=0,skipped=0;
+ const last_sync_time=replayStart(checkpoint,overlapSeconds);let sync_until=windowEnd,after_id='',imported=0,skipped=0;
  for(let page=0;page<maxPages;page++){
   const result=await callFunction({last_sync_time,sync_until,after_id});
   if(result.error)throw Error(result.error);if(!Array.isArray(result.data)||!Number.isFinite(Date.parse(result.sync_until)))throw Error('Incomplete CRM function response');

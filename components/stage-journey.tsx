@@ -1,6 +1,6 @@
 "use client";
 import { allowedNextStages } from "../lib/stage-path";
-import { ArrowRight, CalendarPlus, Video } from "lucide-react";
+import { ArrowRight, CalendarPlus, ShieldCheck, Video } from "lucide-react";
 import {
   leadStages,
   leadPrimaryStages,
@@ -33,6 +33,8 @@ export default function StageJourney({
   choose,
   convert,
   openOpportunity,
+  canOverrideStage = false,
+  overrideStage = () => {},
 }: {
   record: CRMRecord;
   events: StageEvent[];
@@ -41,6 +43,8 @@ export default function StageJourney({
   choose: (stage: string) => void;
   convert: () => void;
   openOpportunity: () => void;
+  canOverrideStage?: boolean;
+  overrideStage?: () => void;
 }) {
   const lead = r.module === "enquiries",
     current = lead ? r.data.status : r.data.stage,
@@ -111,6 +115,17 @@ export default function StageJourney({
           </span>
           {lead && Number(r.data.notContactedAttemptCount || 0) >= 3 && (
             <span className="attempt-tag">#3AttemptsCompleted</span>
+          )}
+          {lead && canOverrideStage && !converted && (
+            <button
+              type="button"
+              className="text-button"
+              title="Administrator stage override"
+              onClick={overrideStage}
+            >
+              <ShieldCheck size={14} />
+              Edit stage
+            </button>
           )}
           {editable &&
             ![
