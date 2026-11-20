@@ -1,7 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CheckCheck, ClipboardCheck, RefreshCw, TrendingUp } from "lucide-react";
+import {
+  CheckCheck,
+  ClipboardCheck,
+  Download,
+  RefreshCw,
+  TrendingUp,
+} from "lucide-react";
 import { readJSON } from "../lib/http";
 import { indiaToday, type CRMRecord, type Member } from "../lib/model";
 import Select from "./select";
@@ -87,10 +93,23 @@ export default function AdminDashboard({
     setRefresh((value) => value + 1);
   }
 
+  function exportPDF() {
+    const previousTitle = document.title;
+    const restoreTitle = () => {
+      document.title = previousTitle;
+    };
+    document.title = `OHO-CRM-Admin-Activity-${appliedDate}`;
+    window.addEventListener("afterprint", restoreTitle, { once: true });
+    window.print();
+    window.setTimeout(restoreTitle, 1500);
+  }
+
   const formattedDate = new Intl.DateTimeFormat("en-IN", {
     dateStyle: "long",
     timeZone: "Asia/Kolkata",
   }).format(new Date(appliedDate + "T00:00:00+05:30"));
+  const appliedUserName =
+    users.find((user) => user.id === appliedUser)?.name || "All users";
   const metrics = [
     {
       label: "Tasks closed",
@@ -138,6 +157,13 @@ export default function AdminDashboard({
 
   return (
     <section className="admin-activity" aria-busy={busy}>
+      <header className="admin-print-header">
+        <span>OHO Solutions CRM</span>
+        <h1>Admin activity report</h1>
+        <p>
+          {formattedDate} · {appliedUserName}
+        </p>
+      </header>
       <div className="card admin-activity-filter">
         <div>
           <h2>Daily team activity</h2>
@@ -178,6 +204,13 @@ export default function AdminDashboard({
             onClick={apply}
           >
             {busy ? "Loading…" : "Apply"}
+          </button>
+          <button
+            className="secondary admin-export-pdf"
+            disabled={busy || !!error || !data}
+            onClick={exportPDF}
+          >
+            <Download size={16} /> Export PDF
           </button>
         </div>
       </div>

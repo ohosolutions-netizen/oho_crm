@@ -40,7 +40,7 @@ async function membersWithBootstrap(email?:string) {
     await database().batch([
       database().prepare("INSERT OR IGNORE INTO roles (id,name,parent_id) VALUES ('admin','Admin',NULL),('manager','Manager','admin'),('executive','Executive','manager')"),
       database().prepare('INSERT OR IGNORE INTO profiles (id,name,permissions) VALUES (?,?,?)').bind('administrator','Administrator',JSON.stringify(fullPermissions())),
-      database().prepare('INSERT OR IGNORE INTO profiles (id,name,permissions) VALUES (?,?,?)').bind('standard','Standard',JSON.stringify(Object.fromEntries(Object.entries(fullPermissions()).map(([k,v])=>[k,k==='administration'?{view:false,create:false,edit:false,delete:false}:{...v,delete:false}])))),
+      database().prepare('INSERT OR IGNORE INTO profiles (id,name,permissions) VALUES (?,?,?)').bind('standard','Standard',JSON.stringify(Object.fromEntries(Object.entries(fullPermissions()).map(([k,v])=>[k,['adminDashboard','administration'].includes(k)?{view:false,create:false,edit:false,delete:false,call:false}:{...v,delete:false}])))),
       database().prepare('INSERT OR IGNORE INTO users (id,email,name,role_id,profile_id,active) VALUES (?,?,?,?,?,1)').bind(id,email,email.split('@')[0],'admin','administrator'),
       ...(claimed.meta.changes?[await log(id,'setup','workspace',{email})]:[]),
     ]);

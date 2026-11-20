@@ -398,12 +398,18 @@ export const modules: Record<
     ],
   },
 };
-export const moduleKeys = [...Object.keys(modules), "administration"];
+export const moduleKeys = [
+  ...Object.keys(modules),
+  "adminDashboard",
+  "administration",
+];
 export function fullPermissions(): PermissionMap {
   return Object.fromEntries(
     moduleKeys.map((k) => [
       k,
-      { view: true, create: true, edit: true, delete: true, call: k === "enquiries" },
+      k === "adminDashboard"
+        ? { view: true, create: false, edit: false, delete: false, call: false }
+        : { view: true, create: true, edit: true, delete: true, call: k === "enquiries" },
     ]),
   );
 }
@@ -413,6 +419,12 @@ export function hasPermission(
   action: Action,
 ) {
   if (module === "leadEnquiries") module = "enquiries";
+  if (module === "adminDashboard")
+    return (
+      action === "view" &&
+      (permissions.adminDashboard?.view === true ||
+        permissions.administration?.view === true)
+    );
   if (module === "integrationErrors")
     return (
       ["view", "edit"].includes(action) &&

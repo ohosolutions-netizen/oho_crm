@@ -303,7 +303,7 @@ export async function adminActivitySQL(
   date: string,
   modifiedBy = "",
 ) {
-  if (!hasPermission(c.permissions, "administration", "view"))
+  if (!hasPermission(c.permissions, "adminDashboard", "view"))
     throw new APIError("Your profile does not allow this action.", 403);
   if (modifiedBy && !c.members.some((member) => member.id === modifiedBy))
     throw new APIError("Select a valid CRM user.");
@@ -330,6 +330,17 @@ export async function adminActivitySQL(
        LEFT JOIN users u ON u.id=a.actor_id
        WHERE r.module IN ('enquiries','opportunities')
          AND a.action!='create'
+         AND NOT (
+           a.action='edit'
+           AND COALESCE(json_extract(a.details,'$.before.ownerId'),'')
+               <> COALESCE(json_extract(a.details,'$.after.ownerId'),'')
+           AND COALESCE(json_extract(a.details,'$.before.data'),json('{}'))
+               = COALESCE(json_extract(a.details,'$.after.data'),json('{}'))
+           AND COALESCE(json_extract(a.details,'$.before.title'),'')
+               = COALESCE(json_extract(a.details,'$.after.title'),'')
+           AND COALESCE(json_extract(a.details,'$.before.companyId'),'')
+               = COALESCE(json_extract(a.details,'$.after.companyId'),'')
+         )
          AND julianday(a.created_at) BETWEEN julianday(?) AND julianday(?)${actorCondition}
        UNION ALL
        SELECT r.id AS recordId,r.module,r.title,r.owner_id AS ownerId,

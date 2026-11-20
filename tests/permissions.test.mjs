@@ -25,6 +25,13 @@ test('module actions are separate and every action also requires View',()=>{
   assert.equal(hasPermission(p,'enquiries','view'),true);assert.equal(hasPermission(p,'enquiries','edit'),true);assert.equal(hasPermission(p,'enquiries','delete'),false);
   p.enquiries.view=false;assert.equal(hasPermission(p,'enquiries','create'),false);assert.equal(hasPermission(p,'enquiries','edit'),false);assert.equal(hasPermission(p,'unknown','view'),false);
 });
+test('admin dashboard access can be granted without administration access',()=>{
+  const p=fullPermissions();p.administration={view:false,create:false,edit:false,delete:false,call:false};
+  assert.equal(hasPermission(p,'adminDashboard','view'),true);
+  assert.equal(hasPermission(p,'administration','view'),false);
+  p.adminDashboard.view=false;assert.equal(hasPermission(p,'adminDashboard','view'),false);
+  const legacy=fullPermissions();delete legacy.adminDashboard;assert.equal(hasPermission(legacy,'adminDashboard','view'),true);
+});
 test('hierarchies reject cycles, self-parenting, and missing parents',()=>{
   assert.equal(validHierarchy(roles),true);
   assert.equal(validHierarchy([...roles.filter(r=>r.id!=='admin'),{id:'admin',name:'Admin',parentId:'executive'}]),false);

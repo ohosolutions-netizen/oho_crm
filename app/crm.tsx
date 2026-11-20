@@ -123,6 +123,11 @@ import type { StageEvent } from "../lib/stage-rules";
 
 type Profile = { id: string; name: string; permissions: PermissionMap };
 
+const permissionModuleLabel = (module: string) =>
+  module === "adminDashboard"
+    ? "Admin dashboard"
+    : modules[module]?.name || "Administration";
+
 type Audit = {
   id: string;
   actor_id: string;
@@ -1207,7 +1212,7 @@ export default function CRM() {
           </nav>
         </div>
         <div className="sidebar-bottom">
-          {can("administration", "view") && (
+          {can("adminDashboard", "view") && (
             <button
               className={view === "admin-dashboard" ? "active" : ""}
               onClick={() => navigate("admin-dashboard")}
@@ -1392,7 +1397,7 @@ export default function CRM() {
             />
           )}
           {view === "admin-dashboard" &&
-            can("administration", "view") && (
+            can("adminDashboard", "view") && (
               <AdminDashboard
                 version={version}
                 users={state.users}
@@ -1823,7 +1828,7 @@ export default function CRM() {
                                 p.permissions[m]?.view ? "enabled" : "disabled"
                               }
                             >
-                              {modules[m]?.name || "Administration"}
+                              {permissionModuleLabel(m)}
                             </span>
                           ))}
                         </div>
@@ -2711,16 +2716,28 @@ function RecordEditor({
             sharePeers: String((item as Role)?.sharePeers || 0),
           };
 
+  const savedPermissions = (item as Profile)?.permissions;
+  const initialPermissions = savedPermissions
+    ? {
+        ...savedPermissions,
+        adminDashboard:
+          savedPermissions.adminDashboard || {
+            view: savedPermissions.administration?.view === true,
+            create: false,
+            edit: false,
+            delete: false,
+            call: false,
+          },
+      }
+    : Object.fromEntries(
+        Object.keys(fullPermissions()).map((k) => [
+          k,
+          { view: false, create: false, edit: false, delete: false, call: false },
+        ]),
+      );
+
   const [values, setValues] = useState(initial),
-    [perms, setPerms] = useState<PermissionMap>(
-      (item as Profile)?.permissions ||
-        Object.fromEntries(
-          Object.keys(fullPermissions()).map((k) => [
-            k,
-            { view: false, create: false, edit: false, delete: false },
-          ]),
-        ),
-    ),
+    [perms, setPerms] = useState<PermissionMap>(initialPermissions),
     [busy, setBusy] = useState(false),
     [err, setErr] = useState("");
 
@@ -3331,14 +3348,16 @@ function RecordEditor({
                 <tbody>
                   {Object.keys(fullPermissions()).map((m) => (
                     <tr key={m}>
-                      <td>{modules[m]?.name || "Administration"}</td>
+                      <td>{permissionModuleLabel(m)}</td>
                       {(["view", "create", "edit", "delete", "call"] as Action[]).map(
-                        (a) => a === "call" && m !== "enquiries" ? (
+                        (a) =>
+                          (m === "adminDashboard" && a !== "view") ||
+                          (a === "call" && m !== "enquiries") ? (
                           <td key={a}>—</td>
                         ) : (
                           <td key={a}>
                             <input
-                              aria-label={`${modules[m]?.name || "Administration"} ${a === "call" ? "voice call" : a}`}
+                              aria-label={`${permissionModuleLabel(m)} ${a === "call" ? "voice call" : a}`}
                               type="checkbox"
                               checked={
                                 a === "call"
