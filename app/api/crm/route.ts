@@ -408,6 +408,24 @@ export async function POST(req: Request) {
       ].includes(operation)
     )
       throw new APIError("Unknown action.");
+    if (kind === "data-export") {
+      if (operation !== "create") throw new APIError("Unknown export action.");
+      if (!hasPermission(c.permissions, "adminDashboard", "view"))
+        throw new APIError("Your profile does not allow this action.", 403);
+      const scope = string(b.scope, "export scope", true);
+      const format = string(b.format, "export format", true).toUpperCase();
+      if (scope !== "Admin activity report" || format !== "PDF")
+        throw new APIError("This export is not available.");
+      const date = string(b.date, "report date", true);
+      if (!validDate(date)) throw new APIError("Select a valid report date.");
+      await log(c.me.id, "export", "admin-dashboard", {
+        scope,
+        format,
+        date,
+        modifiedBy: string(b.modifiedBy, "modified user"),
+      });
+      return Response.json({ ok: true });
+    }
     if (kind === "lead-view") {
       permit(c, "enquiries", "view");
       if (operation !== "create" && operation !== "delete")

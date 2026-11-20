@@ -30,6 +30,16 @@ type AdminActivity = {
   leadsModified: number;
   dealsModified: number;
   report: ReportRow[];
+  exportHistory: {
+    id: string;
+    userId: string;
+    userName: string;
+    target: string;
+    format: string;
+    scope: string;
+    recordCount: string;
+    exportedAt: string;
+  }[];
 };
 
 export default function AdminDashboard({
@@ -50,6 +60,7 @@ export default function AdminDashboard({
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState("");
   const [refresh, setRefresh] = useState(0);
+  const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
     const abort = new AbortController();
@@ -93,7 +104,32 @@ export default function AdminDashboard({
     setRefresh((value) => value + 1);
   }
 
-  function exportPDF() {
+  async function exportPDF() {
+    setExporting(true);
+    setError("");
+    try {
+      const response = await fetch("/api/crm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          kind: "data-export",
+          operation: "create",
+          scope: "Admin activity report",
+          format: "PDF",
+          date: appliedDate,
+          modifiedBy: appliedUser,
+        }),
+      });
+      const body = (await readJSON(response)) as { error?: string };
+      if (!response.ok)
+        throw new Error(body.error || "Unable to record this export.");
+    } catch (reason) {
+      setError(
+        reason instanceof Error ? reason.message : "Unable to export report.",
+      );
+      setExporting(false);
+      return;
+    }
     const previousTitle = document.title;
     const restoreTitle = () => {
       document.title = previousTitle;
@@ -102,14 +138,20 @@ export default function AdminDashboard({
     window.addEventListener("afterprint", restoreTitle, { once: true });
     window.print();
     window.setTimeout(restoreTitle, 1500);
+    setExporting(false);
+    setRefresh((value) => value + 1);
   }
 
   const formattedDate = new Intl.DateTimeFormat("en-IN", {
     dateStyle: "long",
     timeZone: "Asia/Kolkata",
   }).format(new Date(appliedDate + "T00:00:00+05:30"));
+  const activeUsers = users
+    .filter((user) => user.active)
+    .sort((left, right) => left.name.localeCompare(right.name));
   const appliedUserName =
-    users.find((user) => user.id === appliedUser)?.name || "All users";
+    activeUsers.find((user) => user.id === appliedUser)?.name ||
+    "All active users";
   const metrics = [
     {
       label: "Tasks closed",
@@ -187,11 +229,8 @@ export default function AdminDashboard({
               value={modifiedBy}
               onChange={(event) => setModifiedBy(event.target.value)}
             >
-              <option value="">All users</option>
-              {[...users]
-                .filter((user) => user.active)
-                .sort((left, right) => left.name.localeCompare(right.name))
-                .map((user) => (
+              <option value="">All active users</option>
+              {activeUsers.map((user) => (
                   <option value={user.id} key={user.id}>
                     {user.name}
                   </option>
@@ -207,10 +246,10 @@ export default function AdminDashboard({
           </button>
           <button
             className="secondary admin-export-pdf"
-            disabled={busy || !!error || !data}
+            disabled={busy || exporting || !!error || !data}
             onClick={exportPDF}
           >
-            <Download size={16} /> Export PDF
+            <Download size={16} /> {exporting ? "Recording…" : "Export PDF"}
           </button>
         </div>
       </div>
@@ -303,6 +342,51 @@ export default function AdminDashboard({
                 No matching lead, opportunity, or closed-task activity was
                 recorded for this date and user.
               </p>
+            )}
+          </section>
+          <section className="card admin-report-card admin-export-history">
+            <div className="card-heading">
+              <div>
+                <h2>Data export history</h2>
+                <p>Administrator report exports recorded by the CRM.</p>
+              </div>
+              <span className="badge">
+                {data?.exportHistory.length.toLocaleString("en-IN") || 0} exports
+              </span>
+            </div>
+            <p className="form-note admin-export-history-note">
+              Export tracking starts with this update. Earlier module CSV files
+              were created only in the browser and were not historically logged.
+            </p>
+            {data?.exportHistory.length ? (
+              <div className="table-scroll">
+                <table className="records-table admin-report-table">
+                  <thead>
+                    <tr>
+                      <th>Exported by</th>
+                      <th>Export</th>
+                      <th>Format</th>
+                      <th>Date & time</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.exportHistory.map((item) => (
+                      <tr key={item.id}>
+                        <td>{item.userName}</td>
+                        <td>{item.scope}</td>
+                        <td><span className="badge">{item.format}</span></td>
+                        <td>{new Intl.DateTimeFormat("en-IN", {
+                          dateStyle: "medium",
+                          timeStyle: "short",
+                          timeZone: "Asia/Kolkata",
+                        }).format(new Date(item.exportedAt))}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="admin-report-empty">No recorded exports yet.</p>
             )}
           </section>
         </>

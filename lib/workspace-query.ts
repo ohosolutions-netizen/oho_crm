@@ -305,8 +305,11 @@ export async function adminActivitySQL(
 ) {
   if (!hasPermission(c.permissions, "adminDashboard", "view"))
     throw new APIError("Your profile does not allow this action.", 403);
-  if (modifiedBy && !c.members.some((member) => member.id === modifiedBy))
-    throw new APIError("Select a valid CRM user.");
+  if (
+    modifiedBy &&
+    !c.members.some((member) => member.id === modifiedBy && member.active)
+  )
+    throw new APIError("Select an active CRM user.");
   const dates = range(date, date);
   const actorCondition = modifiedBy ? " AND a.actor_id=?" : "";
   const report = await rows<{
@@ -379,6 +382,28 @@ export async function adminActivitySQL(
   );
   const count = (module: string) =>
     report.filter((row) => row.module === module).length;
+  const exportHistory = await rows<{
+    id: string;
+    userId: string;
+    userName: string;
+    target: string;
+    format: string;
+    scope: string;
+    recordCount: string;
+    exportedAt: string;
+  }>(
+    `SELECT a.id,a.actor_id AS userId,COALESCE(u.name,'Unknown user') AS userName,
+            a.target,
+            COALESCE(json_extract(a.details,'$.format'),'Unknown') AS format,
+            COALESCE(json_extract(a.details,'$.scope'),a.target) AS scope,
+            COALESCE(json_extract(a.details,'$.recordCount'),'') AS recordCount,
+            a.created_at AS exportedAt
+     FROM audit a
+     LEFT JOIN users u ON u.id=a.actor_id
+     WHERE a.action='export'
+     ORDER BY a.created_at DESC,a.id DESC
+     LIMIT 200`,
+  );
   return {
     date,
     modifiedBy,
@@ -386,6 +411,7 @@ export async function adminActivitySQL(
     leadsModified: count("enquiries"),
     dealsModified: count("opportunities"),
     report,
+    exportHistory,
   };
 }
 export async function conversionSQL(c: Context, from: string, to: string) {

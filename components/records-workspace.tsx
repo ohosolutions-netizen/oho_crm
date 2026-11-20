@@ -22,7 +22,6 @@ import {
   Plus,
   Columns3,
   List,
-  Download,
   ChevronRight,
   ArrowRight,
   FileClock,
@@ -91,7 +90,6 @@ type Props = {
   can: (m: string, a: Action) => boolean;
   add: (m: string, defaults?: Record<string, string>) => void;
   select: (r: CRMRecord) => void;
-  exportCSV: () => void;
   today: string;
   planFollowUp: (r: CRMRecord) => void;
   leadCriteria: LeadCriteria;
@@ -534,14 +532,6 @@ export default function RecordsWorkspace(p: Props) {
                 </button>
               </div>
             )}
-            <button
-              className="icon-button"
-              onClick={p.exportCSV}
-              title="Export visible records"
-              aria-label="Export visible records"
-            >
-              <Download size={17} />
-            </button>
           </div>
         </div>
         {bulkEnabled && selectedRecordIds.size > 0 && (

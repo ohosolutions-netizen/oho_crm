@@ -1045,76 +1045,6 @@ export default function CRM() {
     setFilter("All");
   }
 
-  async function exportCSV() {
-    const data: CRMRecord[] = [];
-    let page = 0,
-      total = 1;
-    const names = new Map(recordNames);
-    while (data.length < total) {
-      const params = new URLSearchParams({
-        mode: "page",
-        module: view,
-        page: String(page++),
-        pageSize: "100",
-        search: query,
-        filter,
-        owner: ownerFilter,
-      });
-      if (view === "enquiries")
-        params.set("criteria", JSON.stringify(leadCriteria));
-      const response = await fetch("/api/crm?" + params);
-      const body = (await readJSON(response)) as {
-        records: CRMRecord[];
-        relatedRecords: CRMRecord[];
-        total: number;
-        error?: string;
-      };
-      if (!response.ok) {
-        setNotice(body.error || "Unable to export records.");
-        return;
-      }
-      data.push(...body.records);
-      for (const r of body.relatedRecords) names.set(r.id, r.title);
-      total = body.total;
-      if (!body.records.length) break;
-    }
-    const fields = modules[view]?.fields || [];
-
-    const headings = [
-      "Name",
-      "Company",
-      "Owner",
-      ...fields.map((f) => f.label),
-    ];
-
-    const quote = (s: string) =>
-      '"' + (/^[=+@\-\t\r]/.test(s) ? "'" + s : s).replaceAll('"', '""') + '"';
-
-    const csv = [
-      headings,
-      ...data.map((r) => [
-        r.title,
-        r.companyId
-          ? names.get(r.companyId) || r.data.companyName || ""
-          : r.data.companyName || "",
-        owner(r.ownerId),
-        ...fields.map((f) => r.data[f.key] || ""),
-      ]),
-    ]
-      .map((row) => row.map(quote).join(","))
-      .join("\r\n");
-
-    const url = URL.createObjectURL(
-      new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8;" }),
-    );
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `oho-${view}-${today}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-    setNotice("Visible records exported");
-  }
-
   if (loading)
     return (
       <div className="loading">
@@ -1462,7 +1392,6 @@ export default function CRM() {
               select={(r) =>
                 r.module === "activities" ? openTask(r) : openRecord(r)
               }
-              exportCSV={exportCSV}
               today={today}
               planFollowUp={planFollowUp}
               leadCriteria={leadCriteria}
