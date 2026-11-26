@@ -677,6 +677,7 @@ export async function updateFollowUp(c: Context, b: Record<string, unknown>) {
 export async function visibleHistory(
   c: Context,
   records: CRMRecord[],
+  limit = 0,
 ): Promise<StageEvent[]> {
   const visible = new Set(records.map((r) => r.id));
   const targets =
@@ -690,7 +691,11 @@ export async function visibleHistory(
           ? " AND target IN (" + targets.map(() => "?").join(",") + ")"
           : "") +
         " ORDER BY created_at DESC" +
-        (targets.length ? "" : " LIMIT 1000"),
+        (limit > 0
+          ? " LIMIT " + Math.min(Math.floor(limit), 1000)
+          : targets.length
+            ? ""
+            : " LIMIT 1000"),
     )
     .bind(...targets)
     .all<{

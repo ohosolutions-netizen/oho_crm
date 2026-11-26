@@ -19,7 +19,7 @@ export function dueSQL(a = "r") {
     next = j("nextFollowUp", a);
   return `CASE WHEN ${status} IN ('Completed','Cancelled','Paid','Rejected','Not qualified','Converted') OR (${status} IN ('Disqualified','Junk Lead','Lead Lost') AND ${j("followUpNeeded", a)}!='Yes') OR ${j("followUpStatus", a)} IN ('Completed','Cancelled') OR (${stage} IN ('Closed lost','Accepted') AND ${j("followUpNeeded", a)}!='Yes') THEN '' ELSE COALESCE(NULLIF(${next},''),CASE WHEN ${a}.module='enquiries' AND ${status}='Discovery scheduled' AND ${j("discoveryActivityId", a)}='' THEN NULLIF(${j("discoveryDate", a)},'') END,CASE WHEN ${a}.module='opportunities' AND ${stage}='Proposal preparation' THEN NULLIF(${j("proposalDueDate", a)},'') END,CASE WHEN ${a}.module IN ('activities','invoices','projects') THEN ${j("dueDate", a)} END,'') END`;
 }
-export function visibility(c: Context, alias = "r") {
+export function visibility(c: Context, alias = "r", includeUnassigned = false) {
   const owners = c.members
       .filter((u) => visibleOwner(c.me, u, c.roles))
       .map((u) => u.id),
@@ -29,7 +29,7 @@ export function visibility(c: Context, alias = "r") {
   return {
     where:
       owners.length && names.length
-        ? `${alias}.owner_id IN (${owners.map(() => "?")}) AND ${alias}.module IN (${names.map(() => "?")})`
+        ? `${includeUnassigned ? `(${alias}.owner_id IN (${owners.map(() => "?")}) OR TRIM(COALESCE(${alias}.owner_id,''))='')` : `${alias}.owner_id IN (${owners.map(() => "?")})`} AND ${alias}.module IN (${names.map(() => "?")})`
         : "0=1",
     args: (owners.length && names.length
       ? [...owners, ...names]
@@ -47,14 +47,24 @@ function followCondition(value: string, args: unknown[], today: string) {
   args.push(today);
   return `${due}!='' AND ${due}${value === "Overdue" ? "<" : value === "Upcoming" ? ">" : "="}?`;
 }
+const unassignedOwnerSQL = (alias = "r") =>
+  `TRIM(COALESCE(${alias}.owner_id,''))=''`;
+
 export function buildRecordQuery(c: Context, p: URLSearchParams) {
   const module = p.get("module") || "",
-    followups = module === "followups";
+    followups = module === "followups",
+    ownerFilter = p.get("owner") || "",
+    globalCompanies =
+      p.get("mode") === "lookup" &&
+      module === "companies" &&
+      p.get("globalCompanies") === "1";
   if (!followups && !modules[module])
     throw new APIError("Select a valid module.");
   if (!followups && !hasPermission(c.permissions, module, "view"))
     throw new APIError("Your profile does not allow this action.", 403);
-  const scope = visibility(c),
+  const scope = globalCompanies
+      ? { where: "1=1", args: [] as unknown[] }
+      : visibility(c, "r", ownerFilter === "unassigned"),
     args = [...scope.args],
     conditions = [scope.where];
   let criteria = emptyLeadCriteria();
@@ -64,10 +74,11 @@ export function buildRecordQuery(c: Context, p: URLSearchParams) {
   } else conditions.push(dueSQL() + "!=''");
   const filter = p.get("filter") || "All",
     today = indiaToday();
-  const ownerFilter = p.get("owner") || "";
   if (ownerFilter === "mine") {
     conditions.push("r.owner_id=?");
     args.push(c.me.id);
+  } else if (ownerFilter === "unassigned") {
+    conditions.push(unassignedOwnerSQL());
   } else if (ownerFilter && ownerFilter !== "all") {
     const selectedOwner = c.members.find(
       (member) =>
@@ -131,8 +142,12 @@ export function buildRecordQuery(c: Context, p: URLSearchParams) {
       ["owner", "r.owner_id"],
     ] as const) {
       if (criteria[key]) {
-        conditions.push(expr + "=?");
-        args.push(criteria[key]);
+        if (key === "owner" && criteria[key] === "unassigned")
+          conditions.push(unassignedOwnerSQL());
+        else {
+          conditions.push(expr + "=?");
+          args.push(criteria[key]);
+        }
       }
     }
     if (criteria.followup)

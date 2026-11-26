@@ -9,6 +9,7 @@ import { stageTiming } from "../../../lib/stage-timing";
 import {
   emptyLeadCriteria,
   leadViewNames,
+  normalizeLeadCriteria,
   type LeadCriteria,
 } from "../../../lib/lead-views";
 import {
@@ -107,7 +108,10 @@ export async function GET(req?: Request) {
               "SELECT value FROM settings WHERE key LIKE ?",
               "lead-view:" + c.me.id + ":%",
             )
-          ).map((r) => JSON.parse(r.value)),
+          ).map((r) => {
+            const view = JSON.parse(r.value);
+            return { ...view, criteria: normalizeLeadCriteria(view.criteria) };
+          }),
         },
         { headers: { "Cache-Control": "no-store" } },
       );
@@ -119,6 +123,10 @@ export async function GET(req?: Request) {
         params.delete("criteria");
       }
       const page = await recordPage(c, params);
+      const globalCompanyLookup =
+        mode === "lookup" &&
+        params.get("module") === "companies" &&
+        params.get("globalCompanies") === "1";
       if (
         mode === "lookup" &&
         params.get("selectedId") &&
@@ -129,8 +137,17 @@ export async function GET(req?: Request) {
             params.get("selectedId"),
             params.get("module"),
           ])
-        ).find((r) => canSee(c, r));
+        ).find((r) => globalCompanyLookup || canSee(c, r));
         if (selected) page.records.push(selected);
+      }
+      if (globalCompanyLookup) {
+        page.records = page.records.map((record) => ({
+          ...record,
+          ownerId: "",
+          companyId: null,
+          data: {},
+        }));
+        page.relatedRecords = [];
       }
       return Response.json(page, { headers: { "Cache-Control": "no-store" } });
     }
@@ -452,6 +469,21 @@ export async function POST(req: Request) {
       ) as LeadCriteria;
       if (!leadViewNames.includes(criteria.view))
         throw new APIError("Select a valid lead view.");
+      if (
+        criteria.createdWhen &&
+        !["after", "before", "between"].includes(criteria.createdWhen)
+      )
+        throw new APIError("Select a valid created-time condition.");
+      if (
+        criteria.ownerScope &&
+        !["mine", "all", "unassigned"].includes(criteria.ownerScope) &&
+        !c.members.some(
+          (member) =>
+            member.id === criteria.ownerScope &&
+            visibleOwner(c.me, member, c.roles),
+        )
+      )
+        throw new APIError("Select an accessible record owner.");
       for (const k of ["fromDate", "toDate"] as const)
         if (criteria[k] && !validDate(criteria[k]))
           throw new APIError("Select a valid date.");
@@ -684,6 +716,13 @@ export async function POST(req: Request) {
     const changedIds = [id];
     let recordBefore: unknown = null;
     let recordAfter: unknown = null;
+    let duplicateEnquiryResult: {
+      leadId: string;
+      leadName: string;
+      ownerName: string;
+      source: string;
+      stage: string;
+    } | null = null;
     if (kind === "record") {
       let module = string(b.module, "module", true);
       if (!modules[module]) throw new APIError("Unknown module.");
@@ -696,14 +735,34 @@ export async function POST(req: Request) {
       ];
       const detectingDuplicate =
         operation === "create" && module === "enquiries";
-      const existing = await allRecords(
-        detectingDuplicate
-          ? "1=1"
-          : "module<>'enquiries' OR id IN (" +
-              linkedIds.map(() => "?").join(",") +
-              ") OR company_id=? OR EXISTS (SELECT 1 FROM json_each(records.data) WHERE value=?)",
-        detectingDuplicate ? [] : [...linkedIds, id, id],
-      );
+      const companyInput = string(b.companyId, "company") || "";
+      const linkedWhere = `id IN (${linkedIds.map(() => "?").join(",")})${companyInput ? " OR id=? OR company_id=?" : ""}`;
+      const linkedArgs: unknown[] = [
+        ...linkedIds,
+        ...(companyInput ? [companyInput, companyInput] : []),
+      ];
+      let existingWhere = linkedWhere;
+      if (operation === "delete") {
+        existingWhere = "1=1";
+        linkedArgs.length = 0;
+      } else if (detectingDuplicate) {
+        const phone = comparablePhone(
+          ((b.data || {}) as Record<string, unknown>).phone,
+        );
+        if (phone) {
+          const normalizedPhone =
+            "replace(replace(replace(replace(replace(replace(COALESCE(json_extract(data,'$.phone'),''),'+',''),' ',''),'-',''),'(',''),')',''),'.','')";
+          existingWhere += ` OR (module='enquiries' AND substr(${normalizedPhone},-10)=?)`;
+          linkedArgs.push(phone);
+        }
+      } else if (
+        ["companies", "contacts", "proposals", "invoices"].includes(module) ||
+        (module === "activities" && operation === "create")
+      ) {
+        existingWhere += " OR module=?";
+        linkedArgs.push(module);
+      }
+      const existing = await allRecords(existingWhere, linkedArgs);
       const old = existing.find((r) => r.id === id);
       recordBefore = old
         ? {
@@ -757,11 +816,21 @@ export async function POST(req: Request) {
           module === "companies"
             ? null
             : string(b.companyId, "company") || null;
+        let selectedCompany: (typeof existing)[number] | undefined;
         if (companyId) {
-          const co = existing.find(
+          selectedCompany = existing.find(
             (r) => r.id === companyId && r.module === "companies",
           );
-          if (!co || !canSee(c, co))
+          const globalCompanyLink = [
+            "opportunities",
+            "proposals",
+            "invoices",
+            "projects",
+          ].includes(module);
+          if (
+            !selectedCompany ||
+            (!globalCompanyLink && !canSee(c, selectedCompany))
+          )
             throw new APIError("Select an accessible company.");
         }
         if (
@@ -777,6 +846,7 @@ export async function POST(req: Request) {
           throw new APIError("Select a company.");
         const input = (b.data || {}) as Record<string, unknown>;
         let data: Record<string, string> = { ...old?.data };
+        if (selectedCompany) data.companyName = selectedCompany.title;
         for (const f of modules[module].fields) {
           const v = string(input[f.key], f.label, !!f.required);
           data[f.key] = v;
@@ -1091,6 +1161,16 @@ export async function POST(req: Request) {
             ? id
             : duplicateLead.id;
           if (!terminalDuplicateLead(duplicateLead.data.status)) {
+            duplicateEnquiryResult = {
+              leadId: duplicateLead.id,
+              leadName: duplicateLead.title,
+              ownerName:
+                c.members.find(
+                  (member) => member.id === duplicateLead.ownerId,
+                )?.name || "Unassigned",
+              source: duplicateLead.data.source || "Not specified",
+              stage: duplicateLead.data.status || "New Lead",
+            };
             module = "leadEnquiries";
             companyId = duplicateLead.companyId;
             data = {
@@ -1465,7 +1545,14 @@ export async function POST(req: Request) {
     await database().batch(queries);
     if (kind === "record")
       return Response.json(
-        { id, ok: true, changes: await changedRecords(changedIds) },
+        {
+          id,
+          ok: true,
+          ...(duplicateEnquiryResult
+            ? { duplicateEnquiry: duplicateEnquiryResult }
+            : {}),
+          changes: await changedRecords(changedIds),
+        },
         { headers: { "Cache-Control": "no-store" } },
       );
     return Response.json(
@@ -1487,12 +1574,32 @@ export async function SARVAM_WEBHOOK(req: Request) {
 
 export async function changedRecords(ids: string[]) {
   const c = await context();
-  const records = ids.length
+  const uniqueIds = [...new Set(ids)];
+  if (uniqueIds.length > 20)
+    return {
+      ids: uniqueIds,
+      records: [],
+      stageHistory: [],
+      reload: true,
+    };
+  const records = uniqueIds.length
     ? (
-        await allRecords("id IN (" + ids.map(() => "?").join(",") + ")", ids)
+        await allRecords(
+          "id IN (" + uniqueIds.map(() => "?").join(",") + ")",
+          uniqueIds,
+        )
       ).filter((r) => canSee(c, r))
     : [];
-  return { ids, records, stageHistory: await visibleHistory(c, records) };
+  // Mutation responses only need the newest events. Returning a record's full
+  // lifetime history can exceed the Catalyst response limit for older records.
+  // The client merges this delta with history it already has and full history
+  // remains available from the dedicated history endpoint.
+  return {
+    ids: uniqueIds,
+    records,
+    stageHistory: await visibleHistory(c, records, 12),
+    reload: false,
+  };
 }
 
 async function importedNoteHistory(recordId: string) {

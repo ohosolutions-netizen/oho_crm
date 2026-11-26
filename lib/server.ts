@@ -122,7 +122,7 @@ export async function context() {
 }
 export type Context=Awaited<ReturnType<typeof context>>;
 export function permit(c:Context,module:string,action:Action) { if(!hasPermission(c.permissions,module,action)) throw new APIError('Your profile does not allow this action.',403); }
-export function canSee(c:Context,r:CRMRecord) { return hasPermission(c.permissions,r.module,'view')&&visibleOwner(c.me,c.members.find(u=>u.id===r.ownerId),c.roles); }
+export function canSee(c:Context,r:CRMRecord) { return hasPermission(c.permissions,r.module,'view')&&(!r.ownerId||visibleOwner(c.me,c.members.find(u=>u.id===r.ownerId),c.roles)); }
 export async function allRecords(where='',args:unknown[]=[],suffix=''):Promise<CRMRecord[]> {
   return (await rows<Omit<CRMRecord,'data'> & {data:string}>('SELECT id,module,title,owner_id AS ownerId,company_id AS companyId,data,created_at AS createdAt,updated_at AS updatedAt FROM records'+(where?' WHERE '+where:'')+' ORDER BY updated_at DESC'+(suffix?' '+suffix:''),...args)).map(r=>({...r,data:normalizeData(r.module,JSON.parse(r.data))}));
 }

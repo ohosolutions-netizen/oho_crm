@@ -81,6 +81,7 @@ export default function ConvertLeadDialog({ lead, state, close, save }: Props) {
       mode: "lookup",
       module: "companies",
       search: companyName,
+      globalCompanies: "1",
     });
     fetch("/api/crm?" + params, { signal: abort.signal })
       .then(async (response) => {
@@ -216,6 +217,7 @@ export default function ConvertLeadDialog({ lead, state, close, save }: Props) {
                   </span>
                   <RecordLookup
                     module="companies"
+                    globalCompanies
                     label="Company"
                     value={v.companyId}
                     onChange={(value) => {

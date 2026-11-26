@@ -187,7 +187,7 @@ const date = (value: string) =>
       }).format(
         new Date(value.length === 10 ? value + "T00:00:00+05:30" : value),
       )
-    : "â€”";
+    : "—";
 
 const dateTime = (value: string) =>
   value
@@ -196,7 +196,7 @@ const dateTime = (value: string) =>
         timeStyle: "short",
         timeZone: "Asia/Kolkata",
       }).format(new Date(value))
-    : "â€”";
+    : "—";
 
 const initials = (value: string) =>
   value
@@ -753,7 +753,7 @@ export default function CRM() {
   );
 
   const company = (id: string | null) =>
-    id ? recordNames.get(id) || "â€”" : "â€”";
+    id ? recordNames.get(id) || "—" : "—";
 
   const owner = (id: string) =>
     state?.owners.find((u) => u.id === id)?.name || "Team member";
@@ -818,25 +818,25 @@ export default function CRM() {
       const changes = body.changes,
         ids = new Set(changes.ids),
         updated = new Map(changes.records.map((record) => [record.id, record]));
-      setState((previous) =>
-        previous
-          ? {
-              ...previous,
-              records: [
-                ...changes.records,
-                ...previous.records.filter((record) => !ids.has(record.id)),
-              ],
-              stageHistory: [
-                ...changes.stageHistory,
-                ...previous.stageHistory.filter(
-                  (event) =>
-                    !ids.has(event.recordId) ||
-                    event.id.startsWith("zoho-note:"),
-                ),
-              ],
-            }
-          : previous,
-      );
+      setState((previous) => {
+        if (!previous) return previous;
+        const incomingHistoryIds = new Set(
+          changes.stageHistory.map((event) => event.id),
+        );
+        return {
+          ...previous,
+          records: [
+            ...changes.records,
+            ...previous.records.filter((record) => !ids.has(record.id)),
+          ],
+          stageHistory: [
+            ...changes.stageHistory,
+            ...previous.stageHistory.filter(
+              (event) => !incomingHistoryIds.has(event.id),
+            ),
+          ],
+        };
+      });
       setPageData((previous) => ({
         ...previous,
         records: previous.records.flatMap((record) =>
@@ -1052,7 +1052,7 @@ export default function CRM() {
           oho<span>.</span>
         </div>
         <div className="spinner" />
-        <p>Opening your workspaceâ€¦</p>
+        <p>Opening your workspace…</p>
       </div>
     );
 
@@ -1671,7 +1671,7 @@ export default function CRM() {
                               {r.parentId
                                 ? `Reports to ${state.roles.find((p) => p.id === r.parentId)?.name}`
                                 : "Top-level role"}{" "}
-                              Â·{" "}
+                              ·{" "}
                               {
                                 state.users.filter((u) => u.roleId === r.id)
                                   .length
@@ -1783,7 +1783,7 @@ export default function CRM() {
                             <small>{a.target}</small>
                           </span>
                           <time>
-                            {date(a.created_at)} Â·{" "}
+                            {date(a.created_at)} ·{" "}
                             {new Intl.DateTimeFormat("en-IN", {
                               hour: "2-digit",
                               minute: "2-digit",
@@ -1814,7 +1814,7 @@ export default function CRM() {
 
           <footer className="page-footer">
             <span>
-              OHO CRM <span className="footer-dot">Â·</span> Built for better
+              OHO CRM <span className="footer-dot">·</span> Built for better
               customer relationships
             </span>
             <span>India Standard Time</span>
@@ -1933,7 +1933,7 @@ export default function CRM() {
             setConvertTarget(null);
             setSelected(null);
             navigate("opportunities");
-            setNotice("Lead converted â€” opportunity created");
+            setNotice("Lead converted — opportunity created");
           }}
         />
       )}
@@ -1980,7 +1980,7 @@ export default function CRM() {
                 disabled={deleting}
                 onClick={() => void remove()}
               >
-                {deleting ? "Deletingâ€¦" : "Delete record"}
+                {deleting ? "Deleting…" : "Delete record"}
               </button>
             </div>
           </section>
@@ -2410,7 +2410,7 @@ function Detail({
                         <dt>{f.label}</dt>
                         <dd>
                           {!v ? (
-                            "â€”"
+                            "—"
                           ) : linkedRecord ? (
                             <button
                               className="text-button"
@@ -2428,7 +2428,7 @@ function Detail({
                           ) : f.type === "date" ? (
                             date(v) +
                             (r.data[dateTimeKey(f.key, r.module)]
-                              ? " Â· " +
+                              ? " · " +
                                 r.data[dateTimeKey(f.key, r.module)] +
                                 " IST"
                               : "")
@@ -2546,7 +2546,7 @@ function Detail({
                         <strong>{x.title}</strong>
                         <small>
                           {modules[x.module].name}{" "}
-                          {x.data.version ? "Â· Version " + x.data.version : ""}
+                          {x.data.version ? "· Version " + x.data.version : ""}
                         </small>
                       </span>
                       <ChevronRight size={16} />
@@ -2668,7 +2668,19 @@ function RecordEditor({
   const [values, setValues] = useState(initial),
     [perms, setPerms] = useState<PermissionMap>(initialPermissions),
     [busy, setBusy] = useState(false),
-    [err, setErr] = useState("");
+    [err, setErr] = useState(""),
+    [duplicateEnquiry, setDuplicateEnquiry] = useState<{
+      leadId: string;
+      leadName: string;
+      ownerName: string;
+      source: string;
+      stage: string;
+    } | null>(null),
+    [companyDraft, setCompanyDraft] = useState<Record<string, string> | null>(
+      null,
+    ),
+    [companyBusy, setCompanyBusy] = useState(false),
+    [companyError, setCompanyError] = useState("");
 
   const form = useRef<HTMLFormElement>(null);
   const priorFocus = useRef<HTMLElement | null>(null);
@@ -2683,7 +2695,10 @@ function RecordEditor({
 
   useEffect(() => {
     const listener = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !busy) close();
+      if (event.key === "Escape" && !busy) {
+        if (companyDraft) setCompanyDraft(null);
+        else close();
+      }
       if (event.key === "Tab" && form.current) {
         const nodes = Array.from(
           form.current.querySelectorAll<HTMLElement>(
@@ -2703,7 +2718,7 @@ function RecordEditor({
     };
     document.addEventListener("keydown", listener);
     return () => document.removeEventListener("keydown", listener);
-  }, [busy, close]);
+  }, [busy, close, companyDraft]);
 
   const set = (key: string, value: string) =>
     setValues((v) => ({
@@ -2713,6 +2728,59 @@ function RecordEditor({
         ? { contactId: "", enquiryId: "", opportunityId: "", proposalId: "" }
         : {}),
     }));
+
+  function openCompanyCreator() {
+    setCompanyError("");
+    setCompanyDraft({
+      name: "",
+      website: "",
+      industry: "",
+      email: "",
+      phone: "",
+      gst: "",
+      address: "",
+      status: "Prospect",
+      notes: "",
+    });
+  }
+
+  async function saveAndAssociateCompany() {
+    if (!companyDraft?.name.trim() || !companyDraft.website.trim()) {
+      setCompanyError("Company name and website are required.");
+      return;
+    }
+    setCompanyBusy(true);
+    setCompanyError("");
+    try {
+      const result = (await save({
+        kind: "record",
+        operation: "create",
+        module: "companies",
+        title: companyDraft.name.trim(),
+        ownerId: values.ownerId || state.me.id,
+        companyId: "",
+        data: {
+          industry: companyDraft.industry,
+          website: companyDraft.website.trim(),
+          email: companyDraft.email,
+          phone: companyDraft.phone,
+          gst: companyDraft.gst,
+          address: companyDraft.address,
+          status: companyDraft.status,
+          notes: companyDraft.notes,
+        },
+      })) as { id?: string };
+      if (!result.id) throw new Error("The company was saved without an ID.");
+      set("companyId", result.id);
+      setCompanyDraft(null);
+    } catch (error) {
+      setCompanyError(
+        error instanceof Error ? error.message : "Unable to create company.",
+      );
+    } finally {
+      setCompanyBusy(false);
+    }
+  }
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -2756,7 +2824,48 @@ function RecordEditor({
           sharePeers: values.sharePeers === "1",
         });
 
-      await save(payload);
+      const result = (await save(payload)) as {
+        id?: string;
+        duplicateEnquiry?: {
+          leadId: string;
+          leadName: string;
+          ownerName: string;
+          source: string;
+          stage: string;
+        };
+        changes?: {
+          records?: CRMRecord[];
+        };
+      };
+      if (isNewLead) {
+        let duplicate = result.duplicateEnquiry;
+        if (!duplicate) {
+          const returnedRecords = result.changes?.records || [];
+          const enquiry = returnedRecords.find(
+            (record) =>
+              record.module === "leadEnquiries" &&
+              (!result.id || record.id === result.id),
+          );
+          const leadId = enquiry?.data.enquiryId || "";
+          const lead =
+            returnedRecords.find((record) => record.id === leadId) ||
+            state.records.find((record) => record.id === leadId);
+          if (enquiry && lead)
+            duplicate = {
+              leadId: lead.id,
+              leadName: lead.title,
+              ownerName:
+                state.owners.find((owner) => owner.id === lead.ownerId)?.name ||
+                "Unassigned",
+              source: lead.data.source || "Not specified",
+              stage: lead.data.status || "New Lead",
+            };
+        }
+        if (duplicate) {
+          setDuplicateEnquiry(duplicate);
+          return;
+        }
+      }
       close();
     } catch (error) {
       setErr(error instanceof Error ? error.message : "Unable to save.");
@@ -2764,6 +2873,50 @@ function RecordEditor({
       setBusy(false);
     }
   }
+
+  if (duplicateEnquiry)
+    return (
+      <div className="modal-overlay">
+        <section
+          className="confirm-dialog duplicate-enquiry-result"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="duplicate-enquiry-title"
+        >
+          <span className="empty-icon">
+            <AlertCircle size={26} />
+          </span>
+          <h2 id="duplicate-enquiry-title">Existing lead found</h2>
+          <p>
+            A lead with the same phone number already exists. A new enquiry was
+            added to that lead instead of creating a duplicate lead.
+          </p>
+          <dl className="duplicate-enquiry-details">
+            <div>
+              <dt>Existing lead</dt>
+              <dd>{duplicateEnquiry.leadName}</dd>
+            </div>
+            <div>
+              <dt>Lead owner</dt>
+              <dd>{duplicateEnquiry.ownerName}</dd>
+            </div>
+            <div>
+              <dt>Lead source</dt>
+              <dd>{duplicateEnquiry.source}</dd>
+            </div>
+            <div>
+              <dt>Current stage</dt>
+              <dd>{duplicateEnquiry.stage}</dd>
+            </div>
+          </dl>
+          <div className="dialog-actions">
+            <button className="primary" type="button" onClick={close}>
+              Close
+            </button>
+          </div>
+        </section>
+      </div>
+    );
 
   async function resetUserPassword() {
     if (e.kind !== "user" || !item) return;
@@ -2992,6 +3145,12 @@ function RecordEditor({
                     </span>
                     <RecordLookup
                       module="companies"
+                      globalCompanies={[
+                        "opportunities",
+                        "proposals",
+                        "invoices",
+                        "projects",
+                      ].includes(e.module!)}
                       label="Company"
                       required={[
                         "contacts",
@@ -3002,6 +3161,12 @@ function RecordEditor({
                       ].includes(e.module!)}
                       value={values.companyId || ""}
                       onChange={(value) => set("companyId", value)}
+                      onCreate={
+                        ["enquiries", "opportunities"].includes(e.module!)
+                          ? openCompanyCreator
+                          : undefined
+                      }
+                      createLabel="Add new company"
                       disabled={busy}
                       initial={state.records}
                     />
@@ -3333,7 +3498,7 @@ function RecordEditor({
             </button>
             <button className="primary" disabled={busy} type="submit">
               {busy
-                ? "Savingâ€¦"
+                ? "Saving…"
                 : item
                   ? "Save changes"
                   : "Create " +
@@ -3346,6 +3511,135 @@ function RecordEditor({
           </div>
         </div>
       </form>
+      {companyDraft && (
+        <div className="nested-modal-overlay" role="presentation">
+          <section
+            className="editor-dialog company-creator-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="company-creator-title"
+          >
+            <div className="editor-heading">
+              <div>
+                <span className="eyebrow">NEW COMPANY</span>
+                <h2 id="company-creator-title">Add and associate company</h2>
+              </div>
+              <button
+                type="button"
+                className="icon-button"
+                disabled={companyBusy}
+                aria-label="Close company form"
+                onClick={() => setCompanyDraft(null)}
+              >
+                <X size={21} />
+              </button>
+            </div>
+            <div className="editor-body">
+              {companyError && (
+                <div className="error-banner" role="alert">
+                  <AlertCircle size={16} />
+                  {companyError}
+                </div>
+              )}
+              <div className="form-grid">
+                <label className="full">
+                  <span>
+                    Company name <em>*</em>
+                  </span>
+                  <input
+                    autoFocus
+                    value={companyDraft.name}
+                    disabled={companyBusy}
+                    onChange={(event) =>
+                      setCompanyDraft((draft) =>
+                        draft ? { ...draft, name: event.target.value } : draft,
+                      )
+                    }
+                  />
+                </label>
+                {modules.companies.fields.map((field) => (
+                  <label
+                    key={field.key}
+                    className={
+                      ["address", "notes"].includes(field.key) ? "full" : ""
+                    }
+                  >
+                    <span>
+                      {field.label} {field.required && <em>*</em>}
+                    </span>
+                    {field.options ? (
+                      <Select
+                        value={companyDraft[field.key] || field.options[0]}
+                        disabled={companyBusy}
+                        onChange={(event) =>
+                          setCompanyDraft((draft) =>
+                            draft
+                              ? { ...draft, [field.key]: event.target.value }
+                              : draft,
+                          )
+                        }
+                      >
+                        {field.options.map((option) => (
+                          <option key={option} value={option}>
+                            {option}
+                          </option>
+                        ))}
+                      </Select>
+                    ) : field.type === "textarea" ? (
+                      <textarea
+                        rows={3}
+                        value={companyDraft[field.key] || ""}
+                        disabled={companyBusy}
+                        onChange={(event) =>
+                          setCompanyDraft((draft) =>
+                            draft
+                              ? { ...draft, [field.key]: event.target.value }
+                              : draft,
+                          )
+                        }
+                      />
+                    ) : (
+                      <input
+                        type={field.type || "text"}
+                        value={companyDraft[field.key] || ""}
+                        disabled={companyBusy}
+                        onChange={(event) =>
+                          setCompanyDraft((draft) =>
+                            draft
+                              ? { ...draft, [field.key]: event.target.value }
+                              : draft,
+                          )
+                        }
+                      />
+                    )}
+                  </label>
+                ))}
+              </div>
+            </div>
+            <div className="editor-footer company-creator-footer">
+              <span>The new company will be selected on this record.</span>
+              <div>
+                <button
+                  className="secondary"
+                  type="button"
+                  disabled={companyBusy}
+                  onClick={() => setCompanyDraft(null)}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="primary"
+                  type="button"
+                  disabled={companyBusy}
+                  onClick={saveAndAssociateCompany}
+                >
+                  {companyBusy ? "Saving…" : "Save and associate"}
+                </button>
+              </div>
+            </div>
+          </section>
+        </div>
+      )}
     </div>
   );
 }

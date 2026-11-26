@@ -5,10 +5,10 @@ export function enquiryId(id){const hex=createHash('sha256').update('oho:zoho-en
 export function replayStart(checkpoint,overlapSeconds=120){const time=Date.parse(checkpoint);if(!Number.isFinite(time))throw Error('Invalid sync checkpoint');return new Date(time-overlapSeconds*1000).toISOString().replace(/\.\d{3}Z$/,'Z');}
 export function mapLead(lead,ownerId,now,ownerName=''){
  const id=sourceId(lead.id),title=[lead.First_Name,lead.Last_Name].filter(Boolean).join(' ').trim()||lead.Full_Name||lead.Email;
- if(!id||!/^\d+$/.test(id))throw Error('Invalid Zoho lead ID');if(!title)throw Error('Missing lead name');if(!(lead.Phone||lead.Mobile||'').trim())throw Error('Missing mandatory lead phone');if(!ownerId)throw Error('No active intake owner');
+ if(!id||!/^\d+$/.test(id))throw Error('Invalid Zoho lead ID');if(!title)throw Error('Missing lead name');if(!(lead.Phone||lead.Mobile||'').trim())throw Error('Missing mandatory lead phone');
  const created=new Date(lead.Created_Time);if(!Number.isFinite(created.getTime()))throw Error('Missing creation timestamp');
  const data={status:'New Lead',zohoCRMId:id,zohoCRMStatus:lead.Lead_Status||'',zohoCRMOwner:ownerName||lead.Owner?.name||'',zohoCRMOwnerId:sourceId(lead.Owner?.id),zohoCreatedTime:lead.Created_Time,zohoModifiedTime:lead.Modified_Time,companyName:lead.Company||'',contactName:title,email:lead.Email||'',phone:lead.Phone||lead.Mobile,source:lead.Lead_Source||'Other',requirements:lead.Description||'New enquiry received from Zoho CRM',notes:lead.Description||'',receivedTime:created.toLocaleTimeString('en-GB',{timeZone:'Asia/Kolkata',hour:'2-digit',minute:'2-digit'}),receivedDate:created.toLocaleDateString('en-CA',{timeZone:'Asia/Kolkata'}),importOrigin:'Zoho CRM API',importedAt:now};
- return {id:leadId(id),module:'enquiries',title,owner_id:ownerId,company_id:null,data:JSON.stringify(data),created_at:created.toISOString(),updated_at:now};
+ return {id:leadId(id),module:'enquiries',title,owner_id:'',company_id:null,data:JSON.stringify(data),created_at:created.toISOString(),updated_at:now};
 }
 export async function fetchIncremental({fetchPage,checkpoint,now,onLead,maxPages=500}){
  const since=new Date(Date.parse(checkpoint)-120000).toISOString();let page=1,token,imported=0,skipped=0;

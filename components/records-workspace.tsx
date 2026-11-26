@@ -26,6 +26,7 @@ import {
   ArrowRight,
   FileClock,
   AlertCircle,
+  SlidersHorizontal,
 } from "lucide-react";
 import FollowUpCell from "./follow-up-cell";
 import Select from "./select";
@@ -115,6 +116,52 @@ export default function RecordsWorkspace(p: Props) {
   const setCriteria = (key: keyof LeadCriteria, value: string) => {
     setSelectedView("");
     p.setLeadCriteria({ ...p.leadCriteria, [key]: value });
+  };
+  const applyLeadView = (value: string) => {
+    setSelectedView(value.startsWith("custom:") ? value : "");
+    p.setFilter("All");
+    if (value.startsWith("custom:")) {
+      const saved = p.leadViews.find((v) => "custom:" + v.id === value);
+      if (saved) {
+        p.setLeadCriteria(saved.criteria);
+        p.setOwnerFilter(saved.criteria.ownerScope || saved.criteria.owner || "mine");
+        p.setQuery(saved.search);
+      }
+    } else
+      p.setLeadCriteria({
+        ...emptyLeadCriteria(),
+        view: value,
+        ownerScope: p.ownerFilter,
+      });
+  };
+  const setOwnerScope = (value: string) => {
+    setSelectedView("");
+    p.setOwnerFilter(value);
+    p.setLeadCriteria({
+      ...p.leadCriteria,
+      ownerScope: value,
+      owner: "",
+    });
+  };
+  const createdWhen =
+    p.leadCriteria.createdWhen ||
+    (p.leadCriteria.fromDate && p.leadCriteria.toDate
+      ? "between"
+      : p.leadCriteria.fromDate
+        ? "after"
+        : p.leadCriteria.toDate
+          ? "before"
+          : "");
+  const setCreatedWhen = (value: string) => {
+    setSelectedView("");
+    p.setLeadCriteria({
+      ...p.leadCriteria,
+      createdWhen: value,
+      fromDate: value === "before" || !value ? "" : p.leadCriteria.fromDate,
+      fromTime: value === "before" || !value ? "" : p.leadCriteria.fromTime,
+      toDate: value === "after" || !value ? "" : p.leadCriteria.toDate,
+      toTime: value === "after" || !value ? "" : p.leadCriteria.toTime,
+    });
   };
   async function saveView() {
     if (!viewName.trim()) return;
@@ -234,54 +281,106 @@ export default function RecordsWorkspace(p: Props) {
       )}
       {isLead && (
         <div className="lead-view-bar">
-          <div>
-            <span className="lead-view-label">View</span>
+          <div className="lead-view-controls">
+            <label>
+              <span className="lead-view-label">View</span>
             <Select
               aria-label="Lead view"
               value={selectedView || p.leadCriteria.view}
-              onChange={(e) => {
-                const value = e.target.value;
-                setSelectedView(value.startsWith("custom:") ? value : "");
-                p.setFilter("All");
-                if (value.startsWith("custom:")) {
-                  const saved = p.leadViews.find(
-                    (v) => "custom:" + v.id === value,
-                  );
-                  if (saved) {
-                    p.setLeadCriteria(saved.criteria);
-                    p.setQuery(saved.search);
-                  }
-                } else
-                  p.setLeadCriteria({ ...emptyLeadCriteria(), view: value });
-              }}
+              onChange={(e) => applyLeadView(e.target.value)}
             >
               {leadViewNames.map((v) => (
                 <option key={v}>{v}</option>
               ))}
+              {p.leadViews.length > 0 && (
+                <option value="custom-heading" disabled>
+                  Custom Views
+                </option>
+              )}
               {p.leadViews.map((v) => (
                 <option key={v.id} value={"custom:" + v.id}>
                   {v.name}
                 </option>
               ))}
             </Select>
+            </label>
+            <label>
+              <span className="lead-view-label">Record ownership</span>
+              <Select
+                value={p.ownerFilter}
+                onChange={(e) => setOwnerScope(e.target.value)}
+                aria-label="Lead record ownership"
+              >
+                <option value="mine">My records</option>
+                {p.owners.length > 1 && (
+                  <option value="all">All accessible owners</option>
+                )}
+                <option value="unassigned">Unassigned</option>
+                {p.owners
+                  .filter((owner) => owner.active)
+                  .map((owner) => (
+                    <option key={owner.id} value={owner.id}>
+                      {owner.name}
+                      {owner.id === p.meId ? " (me)" : ""}
+                    </option>
+                  ))}
+              </Select>
+            </label>
+            <button
+              type="button"
+              className={"secondary lead-filter-button " + (filtersOpen ? "active" : "")}
+              aria-expanded={filtersOpen}
+              onClick={() => setFiltersOpen((v) => !v)}
+            >
+              <SlidersHorizontal size={16} /> Filter
+              {Object.entries(p.leadCriteria).filter(
+                ([k, v]) => !["view", "ownerScope", "owner"].includes(k) && v,
+              ).length > 0
+                ? " • Applied"
+                : ""}
+            </button>
           </div>
-          <button
-            type="button"
-            className={"secondary " + (filtersOpen ? "active" : "")}
-            aria-expanded={filtersOpen}
-            onClick={() => setFiltersOpen((v) => !v)}
-          >
-            Filters
-            {Object.entries(p.leadCriteria).filter(
-              ([k, v]) => k !== "view" && v,
-            ).length > 0
-              ? " • Applied"
-              : ""}
-          </button>
         </div>
       )}
       {isLead && filtersOpen && (
         <section className="lead-filter-panel">
+          <div className="lead-filter-primary">
+            <label>
+              <span>View</span>
+              <Select
+                aria-label="Filter lead view"
+                value={selectedView || p.leadCriteria.view}
+                onChange={(e) => applyLeadView(e.target.value)}
+              >
+                {leadViewNames.map((v) => (
+                  <option key={v}>{v}</option>
+                ))}
+                {p.leadViews.length > 0 && (
+                  <option value="custom-heading" disabled>Custom Views</option>
+                )}
+                {p.leadViews.map((v) => (
+                  <option key={v.id} value={"custom:" + v.id}>{v.name}</option>
+                ))}
+              </Select>
+            </label>
+            <label>
+              <span>Record owner</span>
+              <Select
+                aria-label="Filter lead record owner"
+                value={p.ownerFilter}
+                onChange={(e) => setOwnerScope(e.target.value)}
+              >
+                <option value="mine">My records</option>
+                {p.owners.length > 1 && <option value="all">All accessible owners</option>}
+                <option value="unassigned">Unassigned</option>
+                {p.owners.filter((owner) => owner.active).map((owner) => (
+                  <option key={owner.id} value={owner.id}>
+                    {owner.name}{owner.id === p.meId ? " (me)" : ""}
+                  </option>
+                ))}
+              </Select>
+            </label>
+          </div>
           <div className="form-grid">
             <label>
               <span>Stage</span>
@@ -353,37 +452,56 @@ export default function RecordsWorkspace(p: Props) {
               />
             </label>
             <label>
-              <span>Created from</span>
-              <DateTimePicker
-                label="Created from"
-                date={p.leadCriteria.fromDate}
-                time={p.leadCriteria.fromTime}
-                onChange={(date, time) => {
-                  setSelectedView("");
-                  p.setLeadCriteria({
-                    ...p.leadCriteria,
-                    fromDate: date,
-                    fromTime: time,
-                  });
-                }}
-              />
+              <span>Created time</span>
+              <Select
+                aria-label="Created time condition"
+                value={createdWhen}
+                onChange={(e) => setCreatedWhen(e.target.value)}
+              >
+                <option value="">Any time</option>
+                <option value="after">After</option>
+                <option value="before">Before</option>
+                <option value="between">Between</option>
+              </Select>
             </label>
-            <label>
-              <span>Created until</span>
-              <DateTimePicker
-                label="Created until"
-                date={p.leadCriteria.toDate}
-                time={p.leadCriteria.toTime}
-                onChange={(date, time) => {
-                  setSelectedView("");
-                  p.setLeadCriteria({
-                    ...p.leadCriteria,
-                    toDate: date,
-                    toTime: time,
-                  });
-                }}
-              />
-            </label>
+            {(createdWhen === "after" || createdWhen === "between") && (
+              <label>
+                <span>{createdWhen === "between" ? "From" : "After date & time"}</span>
+                <DateTimePicker
+                  label={createdWhen === "between" ? "Created from" : "Created after"}
+                  date={p.leadCriteria.fromDate}
+                  time={p.leadCriteria.fromTime}
+                  onChange={(date, time) => {
+                    setSelectedView("");
+                    p.setLeadCriteria({
+                      ...p.leadCriteria,
+                      createdWhen,
+                      fromDate: date,
+                      fromTime: time,
+                    });
+                  }}
+                />
+              </label>
+            )}
+            {(createdWhen === "before" || createdWhen === "between") && (
+              <label>
+                <span>{createdWhen === "between" ? "To" : "Before date & time"}</span>
+                <DateTimePicker
+                  label={createdWhen === "between" ? "Created until" : "Created before"}
+                  date={p.leadCriteria.toDate}
+                  time={p.leadCriteria.toTime}
+                  onChange={(date, time) => {
+                    setSelectedView("");
+                    p.setLeadCriteria({
+                      ...p.leadCriteria,
+                      createdWhen,
+                      toDate: date,
+                      toTime: time,
+                    });
+                  }}
+                />
+              </label>
+            )}
           </div>
           <div className="lead-filter-footer">
             {selectedView.startsWith("custom:") && (
@@ -416,7 +534,9 @@ export default function RecordsWorkspace(p: Props) {
                 p.setLeadCriteria({
                   ...emptyLeadCriteria(),
                   view: p.leadCriteria.view,
+                  ownerScope: "mine",
                 });
+                p.setOwnerFilter("mine");
                 p.setFilter("All");
                 p.setQuery("");
                 setSelectedView("");
@@ -475,24 +595,27 @@ export default function RecordsWorkspace(p: Props) {
             )}
           </div>
           <div className="toolbar-right">
-            <Select
-              value={p.ownerFilter}
-              onChange={(e) => p.setOwnerFilter(e.target.value)}
-              aria-label={`Filter ${m.name} by owner`}
-            >
-              <option value="mine">My records</option>
-              {p.owners.length > 1 && (
-                <option value="all">All accessible owners</option>
-              )}
-              {p.owners
-                .filter((owner) => owner.active)
-                .map((owner) => (
-                  <option key={owner.id} value={owner.id}>
-                    {owner.name}
-                    {owner.id === p.meId ? " (me)" : ""}
-                  </option>
-                ))}
-            </Select>
+            {!isLead && (
+              <Select
+                value={p.ownerFilter}
+                onChange={(e) => p.setOwnerFilter(e.target.value)}
+                aria-label={`Filter ${m.name} by owner`}
+              >
+                <option value="mine">My records</option>
+                {p.owners.length > 1 && (
+                  <option value="all">All accessible owners</option>
+                )}
+                <option value="unassigned">Unassigned</option>
+                {p.owners
+                  .filter((owner) => owner.active)
+                  .map((owner) => (
+                    <option key={owner.id} value={owner.id}>
+                      {owner.name}
+                      {owner.id === p.meId ? " (me)" : ""}
+                    </option>
+                  ))}
+              </Select>
+            )}
             {!isLead && (
               <Select
                 value={p.filter}

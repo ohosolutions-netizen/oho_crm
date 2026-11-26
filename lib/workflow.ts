@@ -89,8 +89,7 @@ export async function convertLead(c: Context, b: Record<string, unknown>) {
       (record) =>
         record.module === "companies" &&
         (record.id === existingOpportunity.companyId ||
-          record.id === lead.companyId) &&
-        canSee(c, record),
+          record.id === lead.companyId),
     );
     let companyId = linkedCompany?.id || "";
     const queries: D1PreparedStatement[] = [];
@@ -98,7 +97,6 @@ export async function convertLead(c: Context, b: Record<string, unknown>) {
       const company = records.find(
         (record) =>
           record.module === "companies" &&
-          canSee(c, record) &&
           record.title.trim().toLocaleLowerCase() ===
             companyName.toLocaleLowerCase(),
       );
@@ -177,8 +175,8 @@ export async function convertLead(c: Context, b: Record<string, unknown>) {
     throw new APIError("Assign an active owner to the lead before converting.");
   const title = text(b.title, lead.title, 180);
   if (!title) throw new APIError("Enter an opportunity name.");
-  const companyName = text(b.companyName, lead.data.companyName || "", 180),
-    createCompany = b.createCompany === true;
+  let companyName = text(b.companyName, lead.data.companyName || "", 180);
+  const createCompany = b.createCompany === true;
   let companyId = createCompany ? "" : text(b.companyId, lead.companyId || "");
   const queries: D1PreparedStatement[] = [];
   const now = new Date().toISOString();
@@ -217,8 +215,8 @@ export async function convertLead(c: Context, b: Record<string, unknown>) {
     const company = records.find(
       (r) => r.module === "companies" && r.id === companyId,
     );
-    if (!company || !canSee(c, company))
-      throw new APIError("Select a company you can access.");
+    if (!company) throw new APIError("Select a valid company.");
+    companyName = company.title;
   } else {
     if (!createCompany)
       throw new APIError("Select a company or choose Add a new company.");
@@ -305,6 +303,7 @@ export async function convertLead(c: Context, b: Record<string, unknown>) {
     scope: lead.data.requirements || "",
     discoverySummary: lead.data.discoverySummary || "",
     notes: lead.data.discoverySummary || lead.data.notes || "",
+    companyName,
     followUpAction: nextFollowUp
       ? text(
           b.followUpAction,
